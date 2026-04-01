@@ -1,0 +1,12 @@
+.env
+.venv
+__pycache__/
+*.pyc
+media/
+staticfiles/
+.test_media/
+.pytest_cache/
+htmlcov/
+.postgres-data/
+.postgres-log.txt
+.postgres-password.txt

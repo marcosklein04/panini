@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Figu Maker IA</title>
+    <meta
+        name="description"
+        content="Version vanilla de Figu Maker IA: cuestionario, camara, procesamiento y figurita final."
+    >
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Orbitron:wght@500;700;800;900&display=swap"
+        rel="stylesheet"
+    >
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="escena-fondo" aria-hidden="true">
+        <img class="escena-fondo__estadio" src="assets/img/stadium-bg.jpg" alt="">
+        <div class="escena-fondo__capa"></div>
+        <div class="halo halo--azul"></div>
+        <div class="halo halo--rojo"></div>
+        <div class="halo halo--verde"></div>
+        <div class="halo halo--dorado"></div>
+        <div class="cesped-virtual"></div>
+        <div class="ruido-fino"></div>
+        <div class="particulas" id="particulas"></div>
+    </div>
+
+    <div class="app">
+        <header class="topbar">
+            <div class="marca">
+                <span class="marca__kicker">Figu Maker IA</span>
+                <span class="marca__titulo">World Cup Edition</span>
+            </div>
+            <div class="topbar__meta">
+                <span class="chip chip--estado" id="etiqueta-pantalla">Inicio</span>
+                <span class="chip">HTML + CSS + JS</span>
+            </div>
+        </header>
+
+        <main class="pantallas">
+            <section id="pantalla-inicio" class="pantalla">
+                <div class="hero-grid">
+                    <article class="panel panel--destacado hero-copy">
+                        <span class="eyebrow">FIGURITA PREMIUM</span>
+                        <h1 class="hero-titulo">
+                            Tu figurita mundialista,
+                            <span class="texto-gradiente">lista para lucirse</span>
+                            como una estrella.
+                        </h1>
+                        <p class="hero-bajada">
+                            Recreamos el frontend de Lovable en codigo puro: mismo flow, misma energia,
+                            misma vibra de estadio, con cuestionario, foto, IA simulada y resultado final.
+                        </p>
+
+                        <div class="hero-acciones">
+                            <button class="boton boton--primario" id="btn-empezar">
+                                <span>Empezar ahora</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M5 12h14M13 5l7 7-7 7"></path>
+                                </svg>
+                            </button>
+                            <button class="boton boton--fantasma" id="btn-ir-plantilla">
+                                <span>Ver plantilla</span>
+                            </button>
+                        </div>
+
+                        <div class="hero-cards">
+                            <div class="tarjeta-info">
+                                <strong>6 pasos</strong>
+                                <span>Nombre, apellido, fecha, altura, peso y equipo.</span>
+                            </div>
+                            <div class="tarjeta-info">
+                                <strong>Camara o archivo</strong>
+                                <span>Tomate una foto o subi una imagen al instante.</span>
+                            </div>
+                            <div class="tarjeta-info">
+                                <strong>Salida premium</strong>
+                                <span>Figurita final con movimiento, brillo y look coleccionable.</span>
+                            </div>
+                        </div>
+                    </article>
+
+                    <aside class="hero-visual">
+                        <article class="panel figurita-showcase">
+                            <span class="figurita-showcase__badge">Plantilla base FIFA 26</span>
+                            <div class="figurita-showcase__marco">
+                                <img
+                                    src="assets/img/panini-img.png"
+                                    alt="Plantilla de figurita integrada"
+                                    class="figurita-showcase__imagen"
+                                >
+                            </div>
+                            <div class="figurita-showcase__footer">
+                                <span>Overlay de encuadre</span>
+                                <span>Preview de referencia</span>
+                                <span>Inspiracion real</span>
+                            </div>
+                        </article>
+
+                        <article class="panel hero-resumen">
+                            <h2>Flujo visual</h2>
+                            <ol class="timeline-resumen">
+                                <li><span>01</span> Home protagonista con CTA premium.</li>
+                                <li><span>02</span> Cuestionario paso a paso con feedback inmediato.</li>
+                                <li><span>03</span> Modulo de foto con guia real de figurita.</li>
+                                <li><span>04</span> Procesamiento con loader y stepper.</li>
+                                <li><span>05</span> Resultado listo para descargar y compartir.</li>
+                            </ol>
+                        </article>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="pantalla-cuestionario" class="pantalla" hidden>
+                <div class="quiz-shell">
+                    <aside class="panel quiz-resumen">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">TU PERFIL</span>
+                            <h2>Datos para la figurita</h2>
+                        </div>
+
+                        <ul class="resumen-lista" id="lista-resumen"></ul>
+
+                        <div class="plantilla-mini">
+                            <img src="assets/img/plantilla-figurita.png" alt="Referencia de la figurita">
+                            <div>
+                                <strong>Base visual integrada</strong>
+                                <p>La misma plantilla se usa para guia, referencia y resultado.</p>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <section class="panel panel--destacado quiz-principal">
+                        <div class="progreso">
+                            <div class="progreso__meta">
+                                <span id="texto-progreso">Paso 1 de 6</span>
+                                <span id="porcentaje-progreso">0%</span>
+                            </div>
+                            <div class="barra-progreso">
+                                <span id="relleno-progreso"></span>
+                            </div>
+                        </div>
+
+                        <div class="pregunta">
+                            <span class="chip chip--paso" id="codigo-pregunta">NOMBRE</span>
+                            <h2 id="titulo-pregunta">Cual es tu nombre?</h2>
+                            <p id="ayuda-pregunta">Tu nombre se mostrara en la figurita final.</p>
+                        </div>
+
+                        <div id="campo-pregunta" class="campo-pregunta"></div>
+
+                        <p class="mensaje-error" id="error-pregunta" hidden></p>
+
+                        <div class="quiz-acciones">
+                            <button class="boton boton--fantasma" id="btn-anterior">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M19 12H5M11 5l-7 7 7 7"></path>
+                                </svg>
+                                <span>Atras</span>
+                            </button>
+                            <button class="boton boton--primario" id="btn-siguiente">
+                                <span>Siguiente</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M5 12h14M13 5l7 7-7 7"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <section id="pantalla-foto" class="pantalla" hidden>
+                <div class="foto-grid">
+                    <section class="panel panel--destacado foto-principal">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">MOMENTO DE FOTO</span>
+                            <h2>Entra en cuadro y preparate para tu figurita</h2>
+                            <p>
+                                Usa la camara si el navegador lo permite o subi una imagen. La plantilla
+                                integrada te ayuda a centrar rostro y hombros.
+                            </p>
+                        </div>
+
+                        <div class="visor-camara" id="visor-camara">
+                            <video id="video-camara" playsinline autoplay muted hidden></video>
+                            <img id="preview-foto" alt="Preview de la foto seleccionada" hidden>
+
+                            <div class="visor-camara__placeholder" id="placeholder-foto">
+                                <div class="visor-camara__icono">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M4 7h4l2-3h4l2 3h4v12H4z"></path>
+                                        <circle cx="12" cy="13" r="4"></circle>
+                                    </svg>
+                                </div>
+                                <strong>Tu foto va aca</strong>
+                                <span>Busca buena luz y mantenete al frente.</span>
+                            </div>
+
+                            <img
+                                class="overlay-plantilla"
+                                src="assets/img/plantilla-figurita.png"
+                                alt="Overlay de la figurita"
+                            >
+
+                            <div class="overlay-guia">
+                                <span class="esquina esquina--tl"></span>
+                                <span class="esquina esquina--tr"></span>
+                                <span class="esquina esquina--bl"></span>
+                                <span class="esquina esquina--br"></span>
+                                <span class="circulo-cabeza"></span>
+                                <span class="linea-hombros"></span>
+                                <span class="linea-centro"></span>
+                                <span class="scan-line"></span>
+                                <div class="guia-texto">Centra el rostro dentro del circulo</div>
+                            </div>
+                        </div>
+
+                        <div class="pildoras-tips">
+                            <span>Buena luz</span>
+                            <span>Rostro al frente</span>
+                            <span>Fondo limpio</span>
+                            <span>Hombros visibles</span>
+                        </div>
+
+                        <div class="foto-acciones">
+                            <button class="boton boton--primario" id="btn-abrir-camara">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M4 7h4l2-3h4l2 3h4v12H4z"></path>
+                                    <circle cx="12" cy="13" r="4"></circle>
+                                </svg>
+                                <span>Abrir camara</span>
+                            </button>
+
+                            <button class="boton boton--secundario" id="btn-sacar-foto" hidden>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <span>Sacar foto</span>
+                            </button>
+
+                            <button class="boton boton--fantasma" id="btn-subir-archivo">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 16V4M7 9l5-5 5 5M5 20h14"></path>
+                                </svg>
+                                <span>Subir imagen</span>
+                            </button>
+
+                            <button class="boton boton--fantasma" id="btn-repetir-foto" hidden>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"></path>
+                                </svg>
+                                <span>Otra vez</span>
+                            </button>
+
+                            <button class="boton boton--dorado" id="btn-confirmar-foto" hidden>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                <span>Confirmar foto</span>
+                            </button>
+
+                            <input id="input-archivo" type="file" accept="image/*" hidden>
+                        </div>
+
+                        <p class="mensaje-error" id="error-foto" hidden></p>
+                    </section>
+
+                    <aside class="panel foto-lateral">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">GUIA DE ENCUADRE</span>
+                            <h2>Referencia real dentro del flujo</h2>
+                        </div>
+
+                        <div class="tarjeta-referencia">
+                            <img src="assets/img/plantilla-figurita.png" alt="Plantilla como referencia">
+                            <p>
+                                La plantilla se superpone sobre la vista para ayudarte a ubicar cabeza,
+                                hombros y espacio de nombre como en una figurita real.
+                            </p>
+                        </div>
+
+                        <ul class="lista-ayudas">
+                            <li>Usa la camara frontal si estas en mobile.</li>
+                            <li>En archivo, elegi una foto vertical si es posible.</li>
+                            <li>El preview final usa tu imagen como protagonista.</li>
+                            <li>Si la camara falla por seguridad del navegador, subi un archivo.</li>
+                        </ul>
+
+                        <button class="boton boton--fantasma boton--ancho" id="btn-volver-quiz">
+                            Volver al cuestionario
+                        </button>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="pantalla-procesando" class="pantalla" hidden>
+                <div class="procesando-grid">
+                    <section class="panel panel--destacado procesando-principal">
+                        <div class="anillo-progreso">
+                            <svg viewBox="0 0 220 220" class="anillo-progreso__svg" aria-hidden="true">
+                                <circle cx="110" cy="110" r="92" class="anillo-progreso__base"></circle>
+                                <circle cx="110" cy="110" r="92" class="anillo-progreso__avance" id="circulo-progreso"></circle>
+                            </svg>
+                            <div class="anillo-progreso__centro">
+                                <span class="anillo-progreso__valor" id="valor-progreso">0%</span>
+                                <span class="anillo-progreso__label">IA en accion</span>
+                            </div>
+                        </div>
+
+                        <div class="panel__encabezado procesando-copy">
+                            <span class="eyebrow">PIPELINE CREATIVO</span>
+                            <h2 id="titulo-procesando">Preparando tu figurita</h2>
+                            <p id="texto-procesando">
+                                Simulamos el mismo flujo visual del builder: subida, analisis,
+                                composicion y acabado final.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section class="panel procesando-steps">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">PROCESOS</span>
+                            <h2>Secuencia visual</h2>
+                        </div>
+                        <ol class="lista-procesos" id="lista-procesos"></ol>
+                    </section>
+
+                    <aside class="panel procesando-preview">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">PREVIEW</span>
+                            <h2>Entrada y referencia</h2>
+                        </div>
+
+                        <div class="preview-dual">
+                            <div class="preview-dual__item">
+                                <span>Foto</span>
+                                <img id="preview-procesando-foto" alt="Preview de la foto">
+                            </div>
+                            <div class="preview-dual__item">
+                                <span>Plantilla</span>
+                                <img src="assets/img/plantilla-figurita.png" alt="Preview de la plantilla">
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section id="pantalla-resultado" class="pantalla" hidden>
+                <div class="resultado-grid">
+                    <section class="panel panel--destacado resultado-principal">
+                        <div class="panel__encabezado">
+                            <span class="eyebrow">RESULTADO FINAL</span>
+                            <h2>Tu figurita ya esta lista</h2>
+                            <p>
+                                Compuesta en canvas con tus datos, tu foto y la plantilla integrada como
+                                referencia visual dentro de la composicion.
+                            </p>
+                        </div>
+
+                        <div class="resultado-canvas-wrap">
+                            <canvas id="canvas-figurita" width="900" height="1200"></canvas>
+                        </div>
+                    </section>
+
+                    <aside class="resultado-lateral">
+                        <article class="panel resultado-datos">
+                            <div class="panel__encabezado">
+                                <span class="eyebrow">DATOS NORMALIZADOS</span>
+                                <h2>Ficha del jugador</h2>
+                            </div>
+                            <dl class="lista-datos" id="lista-datos-finales"></dl>
+                        </article>
+
+                        <article class="panel resultado-acciones">
+                            <div class="panel__encabezado">
+                                <span class="eyebrow">ACCIONES</span>
+                                <h2>Listo para compartir</h2>
+                            </div>
+                            <div class="stack-botones">
+                                <button class="boton boton--dorado boton--ancho" id="btn-descargar">
+                                    Descargar PNG
+                                </button>
+                                <button class="boton boton--secundario boton--ancho" id="btn-compartir">
+                                    Compartir
+                                </button>
+                                <button class="boton boton--fantasma boton--ancho" id="btn-reiniciar">
+                                    Crear otra figurita
+                                </button>
+                            </div>
+                        </article>
+
+                        <article class="panel resultado-referencia">
+                            <div class="panel__encabezado">
+                                <span class="eyebrow">REFERENCIA VISUAL</span>
+                                <h2>Plantilla original integrada</h2>
+                            </div>
+                            <div class="resultado-referencia__marco">
+                                <img src="assets/img/plantilla-figurita.png" alt="Plantilla de referencia">
+                            </div>
+                        </article>
+                    </aside>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <noscript>
+        <div class="noscript">
+            Esta experiencia necesita JavaScript para mostrar el cuestionario, la camara y la figurita final.
+        </div>
+    </noscript>
+
+    <script src="script.js" defer></script>
+</body>
+</html>

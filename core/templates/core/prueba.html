@@ -1,0 +1,268 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Panini World Cup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Rajdhani:wght@500;600;700&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'core/prueba.css' %}">
+</head>
+<body class="app-panini" data-fase="sesion">
+    <div class="escena-fondo" aria-hidden="true">
+        <div class="orb orb-celeste"></div>
+        <div class="orb orb-azul"></div>
+        <div class="orb orb-dorado"></div>
+        <div class="malla-luz"></div>
+        <div class="destello-vertical"></div>
+    </div>
+
+    <div id="indicador-actividad" class="indicador-actividad" hidden>
+        <div class="indicador-actividad__panel">
+            <div class="indicador-actividad__anillo"></div>
+            <div>
+                <p class="indicador-actividad__etiqueta">Mundial mode</p>
+                <strong id="texto-actividad">Preparando experiencia</strong>
+            </div>
+        </div>
+    </div>
+
+    <header class="encabezado-principal">
+        <div class="marca-principal">
+            <div class="marca-principal__escudo">
+                <span>P</span>
+            </div>
+            <div>
+                <p class="marca-principal__eyebrow">Panini World Cup</p>
+                <strong class="marca-principal__titulo">Tu figurita mundialista</strong>
+            </div>
+        </div>
+        <div class="encabezado-principal__meta">
+            <span class="chip chip-dorado">Ambiente mundial</span>
+            <span class="chip chip-claro">Gemini engine</span>
+            <button id="boton-reiniciar" class="boton boton-fantasma boton-compacto" type="button">
+                Empezar de nuevo
+            </button>
+        </div>
+    </header>
+
+    <main class="panel-principal">
+        <section class="hero">
+            <div class="hero__contenido tarjeta-hero">
+                <div class="hero__cintillo">
+                    <span class="etiqueta">Activacion mundialista</span>
+                    <span class="hero__pulso">road to the sticker</span>
+                </div>
+                <h1>Entra al estadio y crea tu figurita con energia de Copa del Mundo.</h1>
+                <p class="descripcion">
+                    Una experiencia visual centrada, elegante y protagonista. Completa la ficha del
+                    jugador, sube tu foto y deja que la app la convierta en una figurita con
+                    atmosfera mundialista, recorte asistido por IA y acabado premium.
+                </p>
+
+                <div class="hero__resumen">
+                    <article class="dato-impacto">
+                        <span class="dato-impacto__valor">01</span>
+                        <p>Ingreso inmediato, sin login obligatorio ni friccion.</p>
+                    </article>
+                    <article class="dato-impacto">
+                        <span class="dato-impacto__valor">06</span>
+                        <p>Campos clave para construir la ficha del jugador.</p>
+                    </article>
+                    <article class="dato-impacto">
+                        <span class="dato-impacto__valor">IA</span>
+                        <p>Recorte guiado por Gemini con acabado transparente.</p>
+                    </article>
+                </div>
+
+                <div class="hero__etapa">
+                    <div>
+                        <p class="hero__etapa-label">Etapa actual</p>
+                        <h2 id="etapa-actual">Cargando tus preguntas</h2>
+                        <p id="descripcion-etapa" class="texto-suave">
+                            Entraste directo al recorrido. La experiencia inicia automaticamente.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="hero__panel tarjeta-estado">
+                <div class="medallon-premium">
+                    <div class="medallon-premium__aro"></div>
+                    <div class="medallon-premium__centro">
+                        <span>2026</span>
+                        <small>cup</small>
+                    </div>
+                </div>
+
+                <div class="panel-progreso">
+                    <div class="panel-progreso__encabezado">
+                        <div>
+                            <p class="panel-progreso__eyebrow">Progreso del recorrido</p>
+                            <strong id="detalle-progreso">Esperando sesion</strong>
+                        </div>
+                        <span id="valor-progreso" class="panel-progreso__valor">0%</span>
+                    </div>
+                    <div class="barra-progreso">
+                        <span id="barra-progreso"></span>
+                    </div>
+                </div>
+
+                <dl class="lista-estado">
+                    <div class="estado-item">
+                        <dt>Recorrido</dt>
+                        <dd id="estado-trivia" data-estado="pendiente">Sin flujo</dd>
+                    </div>
+                    <div class="estado-item">
+                        <dt>Estado</dt>
+                        <dd id="estado-sesion" data-estado="pendiente">Sin sesion</dd>
+                    </div>
+                    <div class="estado-item">
+                        <dt>Foto</dt>
+                        <dd id="estado-foto" data-estado="pendiente">Sin foto</dd>
+                    </div>
+                    <div class="estado-item">
+                        <dt>Recorte</dt>
+                        <dd id="estado-recorte" data-estado="pendiente">Sin recorte</dd>
+                    </div>
+                    <div class="estado-item">
+                        <dt>Figurita</dt>
+                        <dd id="estado-figurita" data-estado="pendiente">Sin figurita</dd>
+                    </div>
+                </dl>
+
+                <div class="hoja-ruta">
+                    <article class="hoja-ruta__paso" id="modulo-resumen-sesion">
+                        <span class="hoja-ruta__numero">01</span>
+                        <div>
+                            <strong>Inicio</strong>
+                            <p id="estado-modulo-sesion">Entrando a la experiencia</p>
+                        </div>
+                    </article>
+                    <article class="hoja-ruta__paso" id="modulo-resumen-trivia">
+                        <span class="hoja-ruta__numero">02</span>
+                        <div>
+                            <strong>Preguntas</strong>
+                            <p id="estado-modulo-trivia">Ficha del jugador</p>
+                        </div>
+                    </article>
+                    <article class="hoja-ruta__paso" id="modulo-resumen-imagen">
+                        <span class="hoja-ruta__numero">03</span>
+                        <div>
+                            <strong>Imagen</strong>
+                            <p id="estado-modulo-imagen">Carga bloqueada</p>
+                        </div>
+                    </article>
+                    <article class="hoja-ruta__paso" id="modulo-resumen-figurita">
+                        <span class="hoja-ruta__numero">04</span>
+                        <div>
+                            <strong>Figurita</strong>
+                            <p id="estado-modulo-figurita">Esperando resultado</p>
+                        </div>
+                    </article>
+                </div>
+            </aside>
+        </section>
+
+        <section id="mensaje-global" class="mensaje-global" hidden></section>
+
+        <section class="rejilla-modulos">
+            <article class="modulo tarjeta" id="modulo-trivia" data-modulo="trivia">
+                <div class="modulo__encabezado">
+                    <div>
+                        <p class="modulo__eyebrow">Paso 01</p>
+                        <h2>Tus preguntas aparecen aca</h2>
+                    </div>
+                    <span class="estado-modulo-chip" id="chip-modulo-trivia">esperando</span>
+                </div>
+                <p class="modulo__descripcion">
+                    Completa la ficha del jugador. Cuando termines, se habilita automaticamente la foto oficial.
+                </div>
+                <form id="form-trivia" class="formulario">
+                    <div id="contenedor-preguntas" class="bloque-preguntas">
+                        <div class="estado-vacio">
+                            <span class="estado-vacio__halo"></span>
+                            <strong>Estamos preparando tu ficha</strong>
+                            <p class="texto-suave">En unos instantes vas a ver las preguntas directamente aca.</p>
+                        </div>
+                    </div>
+                    <button class="boton" type="submit">Guardar y continuar</button>
+                </form>
+            </article>
+
+            <article class="modulo tarjeta" id="modulo-imagen" data-modulo="imagen">
+                <div class="modulo__encabezado">
+                    <div>
+                        <p class="modulo__eyebrow">Paso 02</p>
+                        <h2>Camara oficial</h2>
+                    </div>
+                    <span class="estado-modulo-chip" id="chip-modulo-imagen">bloqueado</span>
+                </div>
+                <p class="modulo__descripcion">
+                    Sube la imagen, dispara el recorte y revisa el resultado con una puesta en escena premium.
+                </p>
+                <form id="form-subida" class="formulario">
+                    <label class="campo campo-archivo">
+                        <span class="campo__label">Foto</span>
+                        <input id="input-archivo" name="archivo" type="file" accept="image/png,image/jpeg,image/webp" required>
+                        <span class="campo-archivo__hint">JPEG, PNG o WEBP. Mejor si el rostro y el torso se ven con claridad.</span>
+                    </label>
+                    <button class="boton" type="submit">Subir foto</button>
+                </form>
+                <form id="form-procesar" class="formulario compacto">
+                    <label class="campo">
+                        <span class="campo__label">Plantilla opcional</span>
+                        <input name="plantilla_id" type="text" placeholder="UUID de plantilla (opcional)">
+                    </label>
+                    <button class="boton" type="submit">Procesar imagen</button>
+                </form>
+                <div id="panel-imagenes" class="galeria">
+                    <figure class="marco-visual" id="marco-original" data-vacio="true" data-placeholder="Tu foto aparecera aqui">
+                        <figcaption>Foto original</figcaption>
+                        <img id="vista-previa-original" alt="Vista previa original">
+                    </figure>
+                    <figure class="marco-visual" id="marco-recorte" data-vacio="true" data-placeholder="El recorte de IA aparecera aqui">
+                        <figcaption>Recorte guiado</figcaption>
+                        <img id="vista-previa-recorte" alt="Vista previa del recorte">
+                    </figure>
+                </div>
+            </article>
+
+            <article class="modulo tarjeta" id="modulo-figurita" data-modulo="figurita">
+                <div class="modulo__encabezado">
+                    <div>
+                        <p class="modulo__eyebrow">Paso 03</p>
+                        <h2>Resultado final</h2>
+                    </div>
+                    <span class="estado-modulo-chip" id="chip-modulo-figurita">en espera</span>
+                </div>
+                <p class="modulo__descripcion">
+                    Activa la composicion final y deja a la figurita como protagonista absoluta de la pantalla.
+                </p>
+                <form id="form-figurita" class="formulario compacto">
+                    <label class="campo">
+                        <span class="campo__label">Plantilla opcional</span>
+                        <input name="plantilla_id" type="text" placeholder="UUID de plantilla (opcional)">
+                    </label>
+                    <button class="boton" type="submit">Generar figurita</button>
+                </form>
+                <div class="galeria galeria-figurita">
+                    <figure class="marco-visual marco-visual--protagonista" id="marco-figurita" data-vacio="true" data-placeholder="La figurita final brillara aqui">
+                        <figcaption>Resultado final</figcaption>
+                        <img id="vista-previa-figurita" alt="Vista previa de la figurita">
+                    </figure>
+                </div>
+            </article>
+        </section>
+    </main>
+
+    <footer class="pie-app">
+        <p>Panini World Cup</p>
+        <span>Ficha + foto + recorte + figurita</span>
+    </footer>
+
+    <script src="{% static 'core/prueba.js' %}"></script>
+</body>
+</html>
