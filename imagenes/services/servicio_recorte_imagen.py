@@ -320,12 +320,12 @@ class ServicioRecorteImagen:
     def _muestrear_fondo_desde_bordes(imagen_bgr: np.ndarray) -> tuple[np.ndarray, float, float]:
         alto, ancho = imagen_bgr.shape[:2]
         margen = max(min(ancho, alto) // 20, 18)
+        franja_superior = max(alto // 5, margen * 3)
         muestras = [
-            imagen_bgr[:margen, :, :],
-            imagen_bgr[:, :margen, :],
-            imagen_bgr[:, max(ancho - margen, 0) :, :],
-            imagen_bgr[max(alto - margen, 0) :, : max(margen * 2, 1), :],
-            imagen_bgr[max(alto - margen, 0) :, max(ancho - (margen * 2), 0) :, :],
+            imagen_bgr[:franja_superior, :, :],
+            imagen_bgr[: max(franja_superior, 1), : max(margen * 2, 1), :],
+            imagen_bgr[: max(franja_superior, 1), max(ancho - (margen * 2), 0) :, :],
+            imagen_bgr[: max(franja_superior // 2, 1), :, :],
         ]
         muestras = [muestra.reshape(-1, 3) for muestra in muestras if muestra.size]
         if not muestras:
@@ -337,8 +337,8 @@ class ServicioRecorteImagen:
         ).reshape(-1, 3)
         color_fondo = np.median(muestras_lab, axis=0).astype(np.float32)
         distancias = np.linalg.norm(muestras_lab - color_fondo, axis=1)
-        umbral_bajo = max(float(np.percentile(distancias, 92)) + 5.0, 16.0)
-        umbral_alto = max(umbral_bajo + 18.0, 34.0)
+        umbral_bajo = max(float(np.percentile(distancias, 90)) + 4.0, 12.0)
+        umbral_alto = max(umbral_bajo + 14.0, 28.0)
         return color_fondo, umbral_bajo, umbral_alto
 
     @staticmethod
@@ -399,17 +399,17 @@ class ServicioRecorteImagen:
         color_fondo_probable = (color_fondo_probable * 255).astype(np.uint8)
 
         alto, ancho = mascara.shape
-        mascara_gc = np.full((alto, ancho), cv2.GC_PR_BGD, dtype=np.uint8)
+        mascara_gc = np.full((alto, ancho), cv2.GC_BGD, dtype=np.uint8)
         margen_borde = max(min(ancho, alto) // 32, 14)
         mascara_gc[:margen_borde, :] = cv2.GC_BGD
         mascara_gc[:, :margen_borde] = cv2.GC_BGD
         mascara_gc[:, max(ancho - margen_borde, 0) :] = cv2.GC_BGD
         mascara_gc[max(alto - margen_borde, 0) :, :] = cv2.GC_BGD
 
-        mascara_gc[silueta_busto <= 8] = cv2.GC_BGD
-        mascara_gc[mascara >= 72] = cv2.GC_PR_FGD
-        mascara_gc[color_fondo_probable >= 168] = cv2.GC_PR_FGD
-        mascara_gc[(color_fondo_probable <= 28) & (silueta_busto <= 32)] = cv2.GC_BGD
+        mascara_gc[silueta_busto > 20] = cv2.GC_PR_FGD
+        mascara_gc[mascara >= 110] = cv2.GC_PR_FGD
+        mascara_gc[color_fondo_probable >= 188] = cv2.GC_PR_FGD
+        mascara_gc[(color_fondo_probable <= 34) & (silueta_busto <= 28)] = cv2.GC_BGD
 
         rostro_y0 = max(int(y - (h * 0.28)), 0)
         rostro_y1 = min(int(y + h + (h * 0.18)), alto)
@@ -425,16 +425,56 @@ class ServicioRecorteImagen:
             region_torso = mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1]
             region_torso[:] = np.maximum(region_torso, cv2.GC_PR_FGD)
 
+        rect_x0 = max(int((x + (w / 2)) - (w * 1.08)), 0)
+        rect_y0 = max(int(y - (h * 0.36)), 0)
+        rect_x1 = min(int((x + (w / 2)) + (w * 1.08)), ancho)
+        rect_y1 = min(int(y + (h * 3.0)), alto)
+        rectangulo = (
+            rect_x0,
+            rect_y0,
+            max(rect_x1 - rect_x0, 1),
+            max(rect_y1 - rect_y0, 1),
+        )
+
         fondo_modelo = np.zeros((1, 65), np.float64)
         primer_plano_modelo = np.zeros((1, 65), np.float64)
         try:
+            mascara_rect = np.zeros((alto, ancho), np.uint8)
+            cv2.grabCut(
+                imagen_bgr,
+                mascara_rect,
+                rectangulo,
+                fondo_modelo,
+                primer_plano_modelo,
+                4,
+                cv2.GC_INIT_WITH_RECT,
+            )
+
+            preliminar = np.where(
+                (mascara_rect == cv2.GC_FGD) | (mascara_rect == cv2.GC_PR_FGD),
+                255,
+                0,
+            ).astype(np.uint8)
+            mascara_gc = np.full((alto, ancho), cv2.GC_BGD, dtype=np.uint8)
+            mascara_gc[silueta_busto > 20] = cv2.GC_PR_FGD
+            mascara_gc[preliminar > 0] = cv2.GC_PR_FGD
+            mascara_gc[mascara >= 110] = cv2.GC_PR_FGD
+            mascara_gc[color_fondo_probable >= 188] = cv2.GC_PR_FGD
+            mascara_gc[(color_fondo_probable <= 34) & (silueta_busto <= 28)] = cv2.GC_BGD
+            mascara_gc[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = cv2.GC_FGD
+            if torso_y1 > torso_y0 and torso_x1 > torso_x0:
+                mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1] = np.maximum(
+                    mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1],
+                    cv2.GC_PR_FGD,
+                )
+
             cv2.grabCut(
                 imagen_bgr,
                 mascara_gc,
                 None,
                 fondo_modelo,
                 primer_plano_modelo,
-                3,
+                2,
                 cv2.GC_INIT_WITH_MASK,
             )
             refinada = np.where(
@@ -449,9 +489,17 @@ class ServicioRecorteImagen:
         limpieza_color[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = 255
         if torso_y1 > torso_y0 and torso_x1 > torso_x0:
             limpieza_color[torso_y0:torso_y1, torso_x0:torso_x1] = 255
+        limpieza_color = cv2.GaussianBlur(limpieza_color, (0, 0), sigmaX=1.1)
 
         refinada = cv2.bitwise_and(refinada, silueta_busto)
         refinada = cv2.bitwise_and(refinada, limpieza_color)
+        refinada = cv2.max(
+            refinada,
+            cv2.bitwise_and(
+                mascara.astype(np.uint8),
+                cv2.bitwise_and(limpieza_color, silueta_busto),
+            ),
+        )
         refinada = ServicioRecorteImagen._seleccionar_componente_rostro(refinada, rostro)
         refinada = cv2.morphologyEx(
             refinada,
@@ -465,7 +513,7 @@ class ServicioRecorteImagen:
             np.ones((3, 3), np.uint8),
             iterations=1,
         )
-        refinada = cv2.GaussianBlur(refinada, (0, 0), sigmaX=1.5)
+        refinada = cv2.GaussianBlur(refinada, (0, 0), sigmaX=1.2)
         return refinada
 
     @staticmethod

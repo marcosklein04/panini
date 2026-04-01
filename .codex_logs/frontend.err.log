@@ -1,27 +1,6 @@
-192.168.68.113 - - [01/Apr/2026 17:24:54] "GET / HTTP/1.1" 200 -
-192.168.68.113 - - [01/Apr/2026 17:24:54] "GET /styles.css?v=20260401d HTTP/1.1" 304 -
-192.168.68.113 - - [01/Apr/2026 17:24:54] "GET /assets/img/stadium-bg.jpg HTTP/1.1" 200 -
-192.168.68.113 - - [01/Apr/2026 17:24:54] "GET /assets/img/panini-img.png HTTP/1.1" 200 -
-192.168.68.113 - - [01/Apr/2026 17:24:54] "GET /script.js?v=20260401d HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:24:57] "GET / HTTP/1.1" 200 -
-192.168.68.116 - - [01/Apr/2026 17:25:14] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:14] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET /styles.css?v=20260401d HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET /assets/img/stadium-bg.jpg HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET /assets/img/panini-img.png HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET /script.js?v=20260401d HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:25:35] code 404, message File not found
-127.0.0.1 - - [01/Apr/2026 17:25:35] "GET /favicon.ico HTTP/1.1" 404 -
-127.0.0.1 - - [01/Apr/2026 17:29:35] code 404, message File not found
-127.0.0.1 - - [01/Apr/2026 17:29:35] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
-127.0.0.1 - - [01/Apr/2026 17:29:40] code 404, message File not found
-127.0.0.1 - - [01/Apr/2026 17:29:40] "GET /favicon.ico HTTP/1.1" 404 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET /styles.css?v=20260401d HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET /assets/img/stadium-bg.jpg HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET /assets/img/panini-img.png HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET /script.js?v=20260401d HTTP/1.1" 200 -
-127.0.0.1 - - [01/Apr/2026 17:29:48] code 404, message File not found
-127.0.0.1 - - [01/Apr/2026 17:29:48] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
-192.168.68.116 - - [01/Apr/2026 17:31:41] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 17:39:57] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 17:40:10] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [01/Apr/2026 17:40:21] "GET / HTTP/1.1" 304 -
+127.0.0.1 - - [01/Apr/2026 17:40:21] "GET /script.js?v=20260401d HTTP/1.1" 304 -
+127.0.0.1 - - [01/Apr/2026 17:42:03] code 404, message File not found
+127.0.0.1 - - [01/Apr/2026 17:42:03] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -

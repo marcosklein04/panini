@@ -204,8 +204,47 @@ class ServicioComposicionFigurita:
         return persona
 
     @staticmethod
-    def _crear_mascara_silueta_plantilla(size: tuple[int, int]) -> Image.Image:
-        ancho, alto = size
+    def _crear_mascara_silueta_plantilla(fondo: Image.Image) -> Image.Image:
+        ancho, alto = fondo.size
+        matriz = np.array(fondo.convert("RGB"))
+        hsv = cv2.cvtColor(matriz, cv2.COLOR_RGB2HSV)
+        mascara_blanco = cv2.inRange(hsv, (0, 0, 210), (180, 70, 255))
+        num_etiquetas, etiquetas, estadisticas, _ = cv2.connectedComponentsWithStats(
+            mascara_blanco
+        )
+
+        mejor_etiqueta = None
+        mejor_puntaje = float("-inf")
+        for etiqueta in range(1, num_etiquetas):
+            x, y, w, h, area = estadisticas[etiqueta]
+            if area < int(ancho * alto * 0.06):
+                continue
+            centro_x = x + (w / 2)
+            centro_y = y + (h / 2)
+            if centro_x > (ancho * 0.62):
+                continue
+            if centro_y < (alto * 0.12) or centro_y > (alto * 0.82):
+                continue
+            puntaje = (
+                area
+                - abs(centro_x - (ancho * 0.33)) * 220
+                - abs(centro_y - (alto * 0.47)) * 120
+            )
+            if puntaje > mejor_puntaje:
+                mejor_puntaje = puntaje
+                mejor_etiqueta = etiqueta
+
+        if mejor_etiqueta is not None:
+            mascara = np.zeros((alto, ancho), dtype=np.uint8)
+            mascara[etiquetas == mejor_etiqueta] = 255
+            mascara = cv2.morphologyEx(
+                mascara,
+                cv2.MORPH_CLOSE,
+                np.ones((11, 11), np.uint8),
+                iterations=2,
+            )
+            mascara = cv2.GaussianBlur(mascara, (0, 0), sigmaX=max(1, int(ancho / 280)))
+            return Image.fromarray(mascara, mode="L")
 
         def sx(valor_x: int, valor_y: int) -> tuple[int, int]:
             return (
@@ -386,7 +425,7 @@ class ServicioComposicionFigurita:
         barra_nombre = layout["barra_nombre"]
         barra_equipo = layout["barra_equipo"]
         mascara_silueta = ServicioComposicionFigurita._crear_mascara_silueta_plantilla(
-            fondo.size
+            fondo
         )
         caja_silueta = mascara_silueta.getbbox() or layout["zona_persona"]
         zona_persona = caja_silueta
