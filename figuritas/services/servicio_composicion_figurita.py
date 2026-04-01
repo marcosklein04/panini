@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import io
 import logging
+from pathlib import Path
 
+import cv2
+import numpy as np
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -33,6 +36,11 @@ class ServicioComposicionFigurita:
         "escala_persona": 0.72,
         "desplazamiento_x": 0,
         "desplazamiento_y": 40,
+        "proporcion_busto": 0.68,
+        "margen_horizontal_busto": 0.14,
+        "margen_superior_busto": 0.05,
+        "margen_inferior_busto": 0.05,
+        "umbral_alpha_persona": 20,
     }
 
     @staticmethod
@@ -100,8 +108,10 @@ class ServicioComposicionFigurita:
     @staticmethod
     def _cargar_fuente(tamano: int, negrita: bool = False):
         candidatos = [
-            "DejaVuSans-Bold.ttf" if negrita else "DejaVuSans.ttf",
+            Path("C:/Windows/Fonts/bahnschrift.ttf"),
+            Path("C:/Windows/Fonts/arialbd.ttf") if negrita else Path("C:/Windows/Fonts/arial.ttf"),
             "Arial.ttf",
+            "DejaVuSans-Bold.ttf" if negrita else "DejaVuSans.ttf",
         ]
         for nombre in candidatos:
             try:
@@ -111,13 +121,31 @@ class ServicioComposicionFigurita:
         return ImageFont.load_default()
 
     @staticmethod
-    def _crear_fondo(configuracion: dict, plantilla: PlantillaFigurita) -> Image.Image:
+    def _ruta_plantilla_demo() -> Path | None:
+        rutas = [
+            settings.BASE_DIR / "figu-maker-ia-vanilla" / "assets" / "img" / "plantilla-figurita.png",
+            settings.BASE_DIR / "core" / "static" / "core" / "plantilla-figurita.png",
+        ]
+        for ruta in rutas:
+            if ruta.exists():
+                return ruta
+        return None
+
+    @staticmethod
+    def _crear_fondo(
+        configuracion: dict, plantilla: PlantillaFigurita
+    ) -> tuple[Image.Image, bool]:
         ancho = configuracion["ancho"]
         alto = configuracion["alto"]
         if plantilla.archivo_base:
             with plantilla.archivo_base.open("rb") as descriptor:
                 fondo = Image.open(descriptor).convert("RGBA")
-                return fondo.resize((ancho, alto))
+                return fondo.resize((ancho, alto)), True
+
+        ruta_demo = ServicioComposicionFigurita._ruta_plantilla_demo()
+        if ruta_demo:
+            fondo = Image.open(ruta_demo).convert("RGBA")
+            return fondo.resize((ancho, alto)), True
 
         color_inicio = configuracion["color_fondo_inicio"]
         color_fin = configuracion["color_fondo_fin"]
@@ -127,6 +155,265 @@ class ServicioComposicionFigurita:
             proporcion = y / max(alto - 1, 1)
             color = _interpolar_color(color_inicio, color_fin, proporcion)
             dibujo.line([(0, y), (ancho, y)], fill=color)
+        return fondo, False
+
+    @staticmethod
+    def _limpiar_alpha_persona(persona: Image.Image, umbral: int) -> Image.Image:
+        persona = persona.copy()
+        alpha = persona.getchannel("A")
+        alpha = alpha.point(lambda valor: 0 if valor < umbral else (255 if valor > 245 else valor))
+        persona.putalpha(alpha)
+        return persona
+
+    @staticmethod
+    def _recortar_a_busto(persona: Image.Image, config: dict) -> Image.Image:
+        umbral = int(config.get("umbral_alpha_persona", 20))
+        persona = ServicioComposicionFigurita._limpiar_alpha_persona(persona, umbral)
+        alpha = persona.getchannel("A")
+        caja = alpha.point(lambda valor: 255 if valor >= umbral else 0).getbbox()
+        if not caja:
+            return persona
+
+        persona = persona.crop(caja)
+        alpha = persona.getchannel("A")
+        caja = alpha.point(lambda valor: 255 if valor >= umbral else 0).getbbox()
+        if not caja:
+            return persona
+
+        x0, y0, x1, y1 = caja
+        ancho = max(x1 - x0, 1)
+        alto = max(y1 - y0, 1)
+        limite_busto = y0 + int(alto * float(config.get("proporcion_busto", 0.68)))
+        margen_x = int(ancho * float(config.get("margen_horizontal_busto", 0.14)))
+        margen_superior = int(alto * float(config.get("margen_superior_busto", 0.05)))
+        margen_inferior = int(alto * float(config.get("margen_inferior_busto", 0.05)))
+
+        caja_busto = (
+            max(x0 - margen_x, 0),
+            max(y0 - margen_superior, 0),
+            min(x1 + margen_x, persona.width),
+            min(limite_busto + margen_inferior, persona.height),
+        )
+        persona = persona.crop(caja_busto)
+        alpha = persona.getchannel("A")
+        caja_final = alpha.point(lambda valor: 255 if valor >= umbral else 0).getbbox()
+        if caja_final:
+            persona = persona.crop(caja_final)
+        return persona
+
+    @staticmethod
+    def _extraer_layout_plantilla_visual(fondo: Image.Image) -> dict:
+        ancho, alto = fondo.size
+
+        def escalar_caja(caja_base):
+            x0, y0, x1, y1 = caja_base
+            return (
+                int(x0 * ancho / 768),
+                int(y0 * alto / 1152),
+                int(x1 * ancho / 768),
+                int(y1 * alto / 1152),
+            )
+
+        layout_default = {
+            "barra_nombre": escalar_caja((32, 930, 621, 1041)),
+            "barra_equipo": escalar_caja((62, 1065, 541, 1116)),
+            "zona_persona": escalar_caja((22, 58, 600, 910)),
+            "centro_persona_x": int(ancho * 0.39),
+            "base_persona_y": escalar_caja((0, 936, 0, 0))[1],
+        }
+
+        try:
+            matriz = np.array(fondo.convert("RGB"))
+            hsv = cv2.cvtColor(matriz, cv2.COLOR_RGB2HSV)
+
+            mascara_barras = cv2.inRange(hsv, (70, 40, 40), (110, 255, 205))
+            num_etiquetas, _, estadisticas, _ = cv2.connectedComponentsWithStats(mascara_barras)
+            candidatos = []
+            for etiqueta in range(1, num_etiquetas):
+                x, y, w, h, area = estadisticas[etiqueta]
+                if area < int((ancho * alto) * 0.008):
+                    continue
+                candidatos.append(
+                    {
+                        "bbox": (int(x), int(y), int(x + w), int(y + h)),
+                        "area": int(area),
+                        "ancho": int(w),
+                        "alto": int(h),
+                        "y": int(y),
+                    }
+                )
+
+            barra_nombre = None
+            barra_equipo = None
+            if candidatos:
+                barra_nombre = max(
+                    candidatos,
+                    key=lambda item: (
+                        item["ancho"],
+                        -abs(item["y"] - int(alto * 0.80)),
+                    ),
+                )["bbox"]
+                resto = [item for item in candidatos if item["bbox"] != barra_nombre]
+                if resto:
+                    barra_equipo = max(
+                        resto,
+                        key=lambda item: (
+                            item["ancho"],
+                            -abs(item["y"] - int(alto * 0.91)),
+                        ),
+                    )["bbox"]
+
+            if (
+                barra_nombre
+                and barra_equipo
+                and (barra_nombre[3] - barra_nombre[1]) < int(alto * 0.16)
+                and (barra_equipo[3] - barra_equipo[1]) < int(alto * 0.10)
+            ):
+                top_persona = int(alto * 0.06)
+                centro_persona_x = int(ancho * 0.39)
+                base_persona_y = barra_nombre[1] + int(alto * 0.01)
+                zona_persona = (
+                    int(ancho * 0.02),
+                    top_persona,
+                    int(ancho * 0.68),
+                    barra_nombre[1] - int(alto * 0.035),
+                )
+                return {
+                    "barra_nombre": barra_nombre,
+                    "barra_equipo": barra_equipo,
+                    "zona_persona": zona_persona,
+                    "centro_persona_x": centro_persona_x,
+                    "base_persona_y": base_persona_y,
+                }
+        except Exception:
+            logger.warning("No se pudo extraer el layout de la plantilla; se usan valores por defecto.")
+
+        return layout_default
+
+    @staticmethod
+    def _formatear_altura(altura_cm: int | None) -> str:
+        if not altura_cm:
+            return "--"
+        metros = altura_cm / 100
+        return f"{metros:.2f}".replace(".", ",") + "m"
+
+    @staticmethod
+    def _componer_sobre_plantilla_visual(*, fondo, persona, config, datos_sticker):
+        ancho = config["ancho"]
+        alto = config["alto"]
+        layout = ServicioComposicionFigurita._extraer_layout_plantilla_visual(fondo)
+        zona_persona = layout["zona_persona"]
+        barra_nombre = layout["barra_nombre"]
+        barra_equipo = layout["barra_equipo"]
+
+        sombra = persona.copy()
+        alfa_sombra = sombra.getchannel("A").filter(ImageFilter.GaussianBlur(radius=20))
+        sombra.putalpha(alfa_sombra)
+
+        escala = float(config.get("escala_persona", 0.78))
+        max_alto_persona = min(
+            int((zona_persona[3] - zona_persona[1]) * 0.98),
+            int(alto * escala),
+        )
+        max_ancho_persona = int((zona_persona[2] - zona_persona[0]) * 0.98)
+        proporcion = min(
+            max_alto_persona / max(persona.height, 1),
+            max_ancho_persona / max(persona.width, 1),
+        )
+        nuevo_tamano = (int(persona.width * proporcion), int(persona.height * proporcion))
+        persona = persona.resize(nuevo_tamano, Image.Resampling.LANCZOS)
+        sombra = sombra.resize(nuevo_tamano, Image.Resampling.LANCZOS)
+
+        centro_x = layout["centro_persona_x"] + int(config.get("desplazamiento_x", 0))
+        base_y = layout["base_persona_y"] + int(config.get("desplazamiento_y", 0))
+        posicion_persona = (centro_x - persona.width // 2, base_y - persona.height)
+        posicion_sombra = (posicion_persona[0] + 18, posicion_persona[1] + 24)
+        fondo.alpha_composite(sombra, posicion_sombra)
+        fondo.alpha_composite(persona, posicion_persona)
+
+        dibujo = ImageDraw.Draw(fondo)
+        fuente_nombre = ServicioComposicionFigurita._cargar_fuente(40, negrita=False)
+        fuente_apellido = ServicioComposicionFigurita._cargar_fuente(40, negrita=True)
+        fuente_info = ServicioComposicionFigurita._cargar_fuente(27, negrita=False)
+        fuente_equipo = ServicioComposicionFigurita._cargar_fuente(31, negrita=True)
+        fuente_pais = ServicioComposicionFigurita._cargar_fuente(26, negrita=False)
+
+        color_barra_inicio = "#0C566A"
+        color_barra_fin = "#1594A7"
+
+        _dibujar_rectangulo_redondeado_con_gradiente(
+            fondo,
+            (
+                barra_nombre[0] - 10,
+                barra_nombre[1] - 8,
+                min(barra_nombre[2] + 22, ancho - 28),
+                min(barra_nombre[3] + 14, alto - 20),
+            ),
+            radio=28,
+            color_inicio=color_barra_inicio,
+            color_fin=color_barra_fin,
+        )
+        _dibujar_rectangulo_redondeado_con_gradiente(
+            fondo,
+            (
+                barra_equipo[0] - 8,
+                barra_equipo[1] - 10,
+                min(barra_equipo[2] + 128, ancho - 194),
+                min(barra_equipo[3] + 18, alto - 56),
+            ),
+            radio=22,
+            color_inicio=color_barra_inicio,
+            color_fin=color_barra_fin,
+        )
+
+        nombre_x = barra_nombre[0] + 34
+        nombre_y = barra_nombre[1] + 14
+        apellido_x = nombre_x
+        dibujo.text(
+            (nombre_x, nombre_y),
+            (datos_sticker.nombre or "Jugador").upper(),
+            font=fuente_nombre,
+            fill="#FFFFFF",
+        )
+        ancho_nombre = dibujo.textbbox(
+            (nombre_x, nombre_y),
+            (datos_sticker.nombre or "Jugador").upper(),
+            font=fuente_nombre,
+        )[2]
+        apellido_x = ancho_nombre + 18
+        dibujo.text(
+            (apellido_x, nombre_y),
+            (datos_sticker.apellido or "Premium").upper(),
+            font=fuente_apellido,
+            fill="#FFFFFF",
+        )
+
+        linea_secundaria = " | ".join(
+            [
+                datos_sticker.fecha_nacimiento.strftime("%d-%m-%Y"),
+                ServicioComposicionFigurita._formatear_altura(datos_sticker.altura_cm),
+                f"{datos_sticker.peso_kg} kg",
+            ]
+        )
+        dibujo.text(
+            (nombre_x, barra_nombre[1] + 64),
+            linea_secundaria,
+            font=fuente_info,
+            fill="#FFFFFF",
+        )
+        dibujo.text(
+            (barra_equipo[0] + 26, barra_equipo[1] + 8),
+            (datos_sticker.equipo or "Equipo").upper(),
+            font=fuente_equipo,
+            fill="#FFFFFF",
+        )
+        dibujo.text(
+            (min(barra_equipo[2] + 40, ancho - 250), barra_equipo[1] + 10),
+            f"({(datos_sticker.nacionalidad or 'ARG').upper()})",
+            font=fuente_pais,
+            fill="#FFFFFF",
+        )
+
         return fondo
 
     @staticmethod
@@ -208,117 +495,128 @@ class ServicioComposicionFigurita:
             **ServicioComposicionFigurita.CONFIG_DEFAULT,
             **figurita.plantilla.configuracion_visual,
         }
-        fondo = ServicioComposicionFigurita._crear_fondo(config, figurita.plantilla)
+        fondo, usa_plantilla_visual = ServicioComposicionFigurita._crear_fondo(
+            config, figurita.plantilla
+        )
         ancho = config["ancho"]
         alto = config["alto"]
 
         with figurita.resultado_recorte.png_transparente.open("rb") as descriptor:
             persona = Image.open(descriptor).convert("RGBA")
-
-        sombra = persona.copy()
-        alfa_sombra = sombra.getchannel("A").filter(ImageFilter.GaussianBlur(radius=18))
-        sombra.putalpha(alfa_sombra)
-
-        escala = float(config["escala_persona"])
-        max_alto_persona = int(alto * escala)
-        proporcion = max_alto_persona / max(persona.height, 1)
-        nuevo_tamano = (int(persona.width * proporcion), int(persona.height * proporcion))
-        persona = persona.resize(nuevo_tamano, Image.Resampling.LANCZOS)
-        sombra = sombra.resize(nuevo_tamano, Image.Resampling.LANCZOS)
-
-        centro_x = ancho // 2 + int(config["desplazamiento_x"])
-        base_y = alto - 120 + int(config["desplazamiento_y"])
-        posicion_persona = (centro_x - persona.width // 2, base_y - persona.height)
-        posicion_sombra = (posicion_persona[0] + 20, posicion_persona[1] + 25)
-        fondo.alpha_composite(sombra, posicion_sombra)
-        fondo.alpha_composite(persona, posicion_persona)
-
-        dibujo = ImageDraw.Draw(fondo)
-        dibujo.rounded_rectangle(
-            [(32, 32), (ancho - 32, alto - 32)],
-            radius=36,
-            outline=config["color_marco"],
-            width=10,
-        )
-        dibujo.rounded_rectangle(
-            [(60, 60), (ancho - 60, 190)],
-            radius=28,
-            fill=(0, 0, 0, 120),
-            outline=config["color_marco"],
-            width=4,
-        )
-        dibujo.ellipse(
-            [(ancho - 240, 210), (ancho - 90, 360)],
-            fill=config["color_marco"],
-            outline="white",
-            width=3,
-        )
-
-        fuente_titulo = ServicioComposicionFigurita._cargar_fuente(48, negrita=True)
-        fuente_subtitulo = ServicioComposicionFigurita._cargar_fuente(24, negrita=False)
-        fuente_badge = ServicioComposicionFigurita._cargar_fuente(24, negrita=True)
-        fuente_nombre = ServicioComposicionFigurita._cargar_fuente(42, negrita=True)
-        fuente_info = ServicioComposicionFigurita._cargar_fuente(26, negrita=False)
-
-        dibujo.text(
-            (90, 82),
-            str(config["titulo_superior"]),
-            font=fuente_titulo,
-            fill=config["color_texto"],
-        )
-        dibujo.text(
-            (92, 138),
-            str(config["subtitulo"]),
-            font=fuente_subtitulo,
-            fill=config["color_texto_secundario"],
-        )
-        dibujo.text(
-            (ancho - 165, 267),
-            str(config["badge"]),
-            anchor="mm",
-            font=fuente_badge,
-            fill="#16354B",
-        )
+        persona = ServicioComposicionFigurita._recortar_a_busto(persona, config)
 
         nombre = ServicioComposicionFigurita._nombre_mostrado(datos_sticker).upper()
-        dibujo.rounded_rectangle(
-            [(80, alto - 245), (ancho - 80, alto - 80)],
-            radius=24,
-            fill=(0, 0, 0, 160),
-            outline=config["color_marco"],
-            width=4,
-        )
-        dibujo.text(
-            (120, alto - 220),
-            nombre,
-            font=fuente_nombre,
-            fill=config["color_texto"],
-        )
-        if datos_sticker.apodo:
+        if usa_plantilla_visual:
+            fondo = ServicioComposicionFigurita._componer_sobre_plantilla_visual(
+                fondo=fondo,
+                persona=persona,
+                config=config,
+                datos_sticker=datos_sticker,
+            )
+        else:
+            sombra = persona.copy()
+            alfa_sombra = sombra.getchannel("A").filter(ImageFilter.GaussianBlur(radius=18))
+            sombra.putalpha(alfa_sombra)
+
+            escala = float(config["escala_persona"])
+            max_alto_persona = int(alto * escala)
+            proporcion = max_alto_persona / max(persona.height, 1)
+            nuevo_tamano = (int(persona.width * proporcion), int(persona.height * proporcion))
+            persona = persona.resize(nuevo_tamano, Image.Resampling.LANCZOS)
+            sombra = sombra.resize(nuevo_tamano, Image.Resampling.LANCZOS)
+
+            centro_x = ancho // 2 + int(config["desplazamiento_x"])
+            base_y = 980 + int(config["desplazamiento_y"])
+            posicion_persona = (centro_x - persona.width // 2, base_y - persona.height)
+            posicion_sombra = (posicion_persona[0] + 20, posicion_persona[1] + 25)
+            fondo.alpha_composite(sombra, posicion_sombra)
+            fondo.alpha_composite(persona, posicion_persona)
+
+            dibujo = ImageDraw.Draw(fondo)
+            dibujo.rounded_rectangle(
+                [(32, 32), (ancho - 32, alto - 32)],
+                radius=36,
+                outline=config["color_marco"],
+                width=10,
+            )
+            dibujo.rounded_rectangle(
+                [(60, 60), (ancho - 60, 190)],
+                radius=28,
+                fill=(0, 0, 0, 120),
+                outline=config["color_marco"],
+                width=4,
+            )
+            dibujo.ellipse(
+                [(ancho - 240, 210), (ancho - 90, 360)],
+                fill=config["color_marco"],
+                outline="white",
+                width=3,
+            )
+
+            fuente_titulo = ServicioComposicionFigurita._cargar_fuente(48, negrita=True)
+            fuente_subtitulo = ServicioComposicionFigurita._cargar_fuente(24, negrita=False)
+            fuente_badge = ServicioComposicionFigurita._cargar_fuente(24, negrita=True)
+            fuente_nombre = ServicioComposicionFigurita._cargar_fuente(42, negrita=True)
+            fuente_info = ServicioComposicionFigurita._cargar_fuente(26, negrita=False)
+
             dibujo.text(
-                (122, alto - 175),
-                f'APODO: "{datos_sticker.apodo.upper()}"',
+                (90, 82),
+                str(config["titulo_superior"]),
+                font=fuente_titulo,
+                fill=config["color_texto"],
+            )
+            dibujo.text(
+                (92, 138),
+                str(config["subtitulo"]),
+                font=fuente_subtitulo,
+                fill=config["color_texto_secundario"],
+            )
+            dibujo.text(
+                (ancho - 165, 267),
+                str(config["badge"]),
+                anchor="mm",
+                font=fuente_badge,
+                fill="#16354B",
+            )
+
+            dibujo.rounded_rectangle(
+                [(80, alto - 245), (ancho - 80, alto - 80)],
+                radius=24,
+                fill=(0, 0, 0, 160),
+                outline=config["color_marco"],
+                width=4,
+            )
+            dibujo.text(
+                (120, alto - 220),
+                nombre,
+                font=fuente_nombre,
+                fill=config["color_texto"],
+            )
+            if datos_sticker.apodo:
+                dibujo.text(
+                    (122, alto - 175),
+                    f'APODO: "{datos_sticker.apodo.upper()}"',
+                    font=fuente_info,
+                    fill=config["color_texto_secundario"],
+                )
+            dibujo.text(
+                (122, alto - 140),
+                f"NACIMIENTO: {datos_sticker.fecha_nacimiento.strftime('%d/%m/%Y')}",
                 font=fuente_info,
                 fill=config["color_texto_secundario"],
             )
-        dibujo.text(
-            (122, alto - 140),
-            f"NACIMIENTO: {datos_sticker.fecha_nacimiento.strftime('%d/%m/%Y')}",
-            font=fuente_info,
-            fill=config["color_texto_secundario"],
-        )
-        dibujo.text(
-            (122, alto - 108),
-            f"ALTURA: {datos_sticker.altura_cm} CM   PESO: {datos_sticker.peso_kg} KG",
-            font=fuente_info,
-            fill=config["color_texto_secundario"],
-        )
-        dibujo.text(
-            (122, alto - 76),
-            f"EQUIPO: {datos_sticker.equipo.upper()}",
-            font=fuente_info,
-            fill=config["color_texto_secundario"],
-        )
+            dibujo.text(
+                (122, alto - 108),
+                f"ALTURA: {datos_sticker.altura_cm} CM   PESO: {datos_sticker.peso_kg} KG",
+                font=fuente_info,
+                fill=config["color_texto_secundario"],
+            )
+            dibujo.text(
+                (122, alto - 76),
+                f"EQUIPO: {datos_sticker.equipo.upper()}",
+                font=fuente_info,
+                fill=config["color_texto_secundario"],
+            )
 
         imagen_final = fondo.convert("RGB")
         preview = imagen_final.copy()
@@ -370,3 +668,27 @@ def _interpolar_color(color_inicio: str, color_fin: str, proporcion: float):
     inicio = a_rgb(color_inicio)
     fin = a_rgb(color_fin)
     return tuple(int(inicio[i] + (fin[i] - inicio[i]) * proporcion) for i in range(3))
+
+
+def _dibujar_rectangulo_redondeado_con_gradiente(
+    imagen: Image.Image,
+    caja: tuple[int, int, int, int],
+    *,
+    radio: int,
+    color_inicio: str,
+    color_fin: str,
+):
+    x0, y0, x1, y1 = caja
+    ancho = max(x1 - x0, 1)
+    alto = max(y1 - y0, 1)
+    gradiente = Image.new("RGBA", (ancho, alto))
+    gradiente_dibujo = ImageDraw.Draw(gradiente)
+    for y in range(alto):
+        proporcion = y / max(alto - 1, 1)
+        color = _interpolar_color(color_inicio, color_fin, proporcion)
+        gradiente_dibujo.line([(0, y), (ancho, y)], fill=color)
+
+    mascara = Image.new("L", (ancho, alto), 0)
+    mascara_dibujo = ImageDraw.Draw(mascara)
+    mascara_dibujo.rounded_rectangle([(0, 0), (ancho, alto)], radius=radio, fill=255)
+    imagen.paste(gradiente, (x0, y0), mascara)

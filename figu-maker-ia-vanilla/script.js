@@ -1,86 +1,32 @@
+const API_BASE_URL = resolverApiBaseUrl();
+const CLAVE_STORAGE = "figu-maker-ia-vanilla-backend";
+const MAPA_CODIGOS_BACKEND = {
+    nombre: "nombre",
+    apellido: "apellido",
+    fechaNacimiento: "fecha_nacimiento",
+    altura: "altura_cm",
+    peso: "peso_kg",
+    equipo: "equipo",
+};
+
 const PASOS_CUESTIONARIO = [
-    {
-        id: "nombre",
-        codigo: "NOMBRE",
-        etiqueta: "Cual es tu nombre?",
-        placeholder: "Ej: Lionel",
-        tipo: "texto",
-        ayuda: "Tu nombre va en la figurita final con presencia de portada.",
-    },
-    {
-        id: "apellido",
-        codigo: "APELLIDO",
-        etiqueta: "Y tu apellido?",
-        placeholder: "Ej: Messi",
-        tipo: "texto",
-        ayuda: "Lo usamos como apellido protagonista en el header de la carta.",
-    },
-    {
-        id: "fechaNacimiento",
-        codigo: "FECHA",
-        etiqueta: "Cuando naciste?",
-        placeholder: "",
-        tipo: "fecha",
-        ayuda: "La fecha aparece en la franja de estadisticas de la figurita.",
-    },
-    {
-        id: "altura",
-        codigo: "ALTURA",
-        etiqueta: "Cuanto medis? (cm)",
-        placeholder: "Ej: 178",
-        tipo: "numero",
-        ayuda: "Altura en centimetros, como en una ficha de jugador profesional.",
-    },
-    {
-        id: "peso",
-        codigo: "PESO",
-        etiqueta: "Cuanto pesas? (kg)",
-        placeholder: "Ej: 72",
-        tipo: "numero",
-        ayuda: "Peso en kilogramos para completar la linea de datos.",
-    },
-    {
-        id: "equipo",
-        codigo: "EQUIPO",
-        etiqueta: "De que equipo sos?",
-        placeholder: "Elegi tu equipo",
-        tipo: "opcion",
-        ayuda: "Selecciona el club que quieres mostrar en la franja inferior.",
-        opciones: [
-            "Boca Juniors",
-            "River Plate",
-            "Racing Club",
-            "Independiente",
-            "San Lorenzo",
-            "Huracan",
-            "Velez Sarsfield",
-            "Argentinos Juniors",
-            "Estudiantes LP",
-            "Gimnasia LP",
-            "Newell's Old Boys",
-            "Rosario Central",
-            "Talleres",
-            "Belgrano",
-            "Colon",
-            "Union",
-            "Banfield",
-            "Lanus",
-            "Defensa y Justicia",
-            "Godoy Cruz",
-            "Otro",
-        ],
-    },
+    { id: "nombre", codigo: "NOMBRE", etiqueta: "Cual es tu nombre?", placeholder: "Ej: Lionel", tipo: "texto", ayuda: "Tu nombre va en la figurita final con presencia de portada." },
+    { id: "apellido", codigo: "APELLIDO", etiqueta: "Y tu apellido?", placeholder: "Ej: Messi", tipo: "texto", ayuda: "Lo usamos como apellido protagonista en el header de la carta." },
+    { id: "fechaNacimiento", codigo: "FECHA", etiqueta: "Cuando naciste?", placeholder: "", tipo: "fecha", ayuda: "La fecha aparece en la franja de estadisticas de la figurita." },
+    { id: "altura", codigo: "ALTURA", etiqueta: "Cuanto medis? (cm)", placeholder: "Ej: 178", tipo: "numero", ayuda: "Altura en centimetros, como en una ficha de jugador profesional." },
+    { id: "peso", codigo: "PESO", etiqueta: "Cuanto pesas? (kg)", placeholder: "Ej: 72", tipo: "numero", ayuda: "Peso en kilogramos para completar la linea de datos." },
+    { id: "equipo", codigo: "EQUIPO", etiqueta: "De que equipo sos?", placeholder: "Elegi tu equipo", tipo: "opcion", ayuda: "Selecciona el club que quieres mostrar en la franja inferior.", opciones: ["Boca Juniors", "River Plate"] },
 ];
 
 const PASOS_PROCESAMIENTO = [
-    { id: "subida", titulo: "Subiendo tu foto", detalle: "Armando el paquete visual inicial.", duracion: 1300 },
-    { id: "rostro", titulo: "Detectando rostro", detalle: "Buscando la mejor presencia dentro del marco.", duracion: 1700 },
-    { id: "analisis", titulo: "Analizando encuadre", detalle: "Ajustando foco, posicion y silueta.", duracion: 1500 },
-    { id: "composicion", titulo: "Componiendo figurita", detalle: "Integrando foto, colores y datos.", duracion: 2100 },
-    { id: "acabado", titulo: "Aplicando acabado final", detalle: "Brillo, overlays y toque premium.", duracion: 1200 },
+    { titulo: "Subiendo tu foto", detalle: "Guardando la imagen original en el backend." },
+    { titulo: "Gemini analizando la silueta", detalle: "Detectando persona y guiando el recorte." },
+    { titulo: "Refinando bordes", detalle: "Generando el PNG transparente final." },
+    { titulo: "Componiendo la figurita", detalle: "Pegando el recorte en la plantilla premium." },
+    { titulo: "Cerrando el resultado", detalle: "Preparando la imagen final para mostrarla." },
 ];
 
-const estado = {
+const ESTADO_BASE = {
     pantalla: "inicio",
     pasoActual: 0,
     respuestas: {
@@ -91,27 +37,43 @@ const estado = {
         peso: "",
         equipo: "",
     },
+    tokenPublico: "",
+    preguntasBackend: [],
+    equipos: [],
     fotoDataUrl: "",
-    stream: null,
-    procesando: false,
-    temporizadores: [],
-    resultadoDataUrl: "",
+    fotoId: "",
+    resultadoId: "",
+    recorteUrl: "",
+    figuritaId: "",
+    figuritaUrl: "",
 };
 
+const estado = restaurarEstado();
 const referencias = {};
+let archivoActual = null;
+let accionEnCurso = false;
+let backendInicializado = false;
 
-document.addEventListener("DOMContentLoaded", iniciarAplicacion);
-
-function iniciarAplicacion() {
+document.addEventListener("DOMContentLoaded", () => {
     cachearReferencias();
     insertarDefinicionGradiente();
     crearParticulas();
     enlazarEventos();
-    restaurarEstado();
     renderizarResumen();
     renderizarCuestionario();
     renderizarFoto();
     mostrarPantalla(estado.pantalla);
+    void arrancarBackend();
+});
+
+function resolverApiBaseUrl() {
+    if (!window.location.hostname) {
+        return "http://127.0.0.1:8000";
+    }
+    if (window.location.port === "8000") {
+        return window.location.origin;
+    }
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
 }
 
 function cachearReferencias() {
@@ -153,7 +115,8 @@ function cachearReferencias() {
     referencias.tituloProcesando = document.getElementById("titulo-procesando");
     referencias.textoProcesando = document.getElementById("texto-procesando");
     referencias.previewProcesandoFoto = document.getElementById("preview-procesando-foto");
-    referencias.canvasFigurita = document.getElementById("canvas-figurita");
+    referencias.resultadoFigura = document.getElementById("resultado-figura");
+    referencias.imagenFiguritaFinal = document.getElementById("imagen-figurita-final");
     referencias.listaDatosFinales = document.getElementById("lista-datos-finales");
     referencias.btnDescargar = document.getElementById("btn-descargar");
     referencias.btnCompartir = document.getElementById("btn-compartir");
@@ -173,7 +136,6 @@ function insertarDefinicionGradiente() {
     gradient.setAttribute("y1", "0%");
     gradient.setAttribute("x2", "100%");
     gradient.setAttribute("y2", "100%");
-
     [
         { offset: "0%", color: "#ff4d5e" },
         { offset: "50%", color: "#458cff" },
@@ -184,44 +146,8 @@ function insertarDefinicionGradiente() {
         stop.setAttribute("stop-color", item.color);
         gradient.appendChild(stop);
     });
-
     defs.appendChild(gradient);
     svg.insertBefore(defs, svg.firstChild);
-}
-
-function enlazarEventos() {
-    referencias.btnEmpezar.addEventListener("click", () => {
-        estado.pantalla = "cuestionario";
-        guardarEstado();
-        mostrarPantalla("cuestionario");
-    });
-
-    referencias.btnIrPlantilla.addEventListener("click", () => {
-        const tarjeta = document.querySelector(".figurita-showcase");
-        if (tarjeta) {
-            tarjeta.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-    });
-
-    referencias.btnAnterior.addEventListener("click", manejarAnterior);
-    referencias.btnSiguiente.addEventListener("click", avanzarCuestionario);
-    referencias.btnAbrirCamara.addEventListener("click", abrirCamara);
-    referencias.btnSacarFoto.addEventListener("click", tomarFoto);
-    referencias.btnSubirArchivo.addEventListener("click", () => referencias.inputArchivo.click());
-    referencias.inputArchivo.addEventListener("change", manejarArchivoSeleccionado);
-    referencias.btnRepetirFoto.addEventListener("click", limpiarFoto);
-    referencias.btnConfirmarFoto.addEventListener("click", confirmarFoto);
-    referencias.btnVolverQuiz.addEventListener("click", () => {
-        cerrarCamara();
-        estado.pantalla = "cuestionario";
-        guardarEstado();
-        mostrarPantalla("cuestionario");
-    });
-    referencias.btnDescargar.addEventListener("click", descargarFigurita);
-    referencias.btnCompartir.addEventListener("click", compartirFigurita);
-    referencias.btnReiniciar.addEventListener("click", reiniciarAplicacion);
-
-    window.addEventListener("beforeunload", cerrarCamara);
 }
 
 function crearParticulas() {
@@ -241,56 +167,128 @@ function crearParticulas() {
     }
 }
 
-function restaurarEstado() {
-    const bruto = sessionStorage.getItem("figu-maker-ia-estado");
-    if (!bruto) {
-        return;
-    }
-    try {
-        const data = JSON.parse(bruto);
-        if (data && typeof data === "object") {
-            estado.pantalla = data.pantalla || "inicio";
-            estado.pasoActual = Number.isInteger(data.pasoActual) ? data.pasoActual : 0;
-            estado.respuestas = { ...estado.respuestas, ...(data.respuestas || {}) };
-            estado.fotoDataUrl = data.fotoDataUrl || "";
-            estado.resultadoDataUrl = data.resultadoDataUrl || "";
+function enlazarEventos() {
+    referencias.btnEmpezar.addEventListener("click", () => mostrarPantalla("cuestionario"));
+    referencias.btnIrPlantilla.addEventListener("click", () => {
+        document.querySelector(".figurita-showcase")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    referencias.btnAnterior.addEventListener("click", () => {
+        if (estado.pasoActual === 0) {
+            mostrarPantalla("inicio");
+            return;
         }
-    } catch (_error) {
-        sessionStorage.removeItem("figu-maker-ia-estado");
-    }
+        ocultarErrorPregunta();
+        estado.pasoActual -= 1;
+        persistirEstado();
+        renderizarCuestionario();
+    });
+    referencias.btnSiguiente.addEventListener("click", () => {
+        void ejecutarAccion("Guardando respuesta", avanzarCuestionario);
+    });
+    referencias.btnAbrirCamara.addEventListener("click", () => {
+        void ejecutarAccion("Abriendo camara", abrirCamara);
+    });
+    referencias.btnSacarFoto.addEventListener("click", tomarFoto);
+    referencias.btnSubirArchivo.addEventListener("click", () => referencias.inputArchivo.click());
+    referencias.inputArchivo.addEventListener("change", manejarArchivoSeleccionado);
+    referencias.btnRepetirFoto.addEventListener("click", limpiarFoto);
+    referencias.btnConfirmarFoto.addEventListener("click", () => {
+        void ejecutarAccion("Procesando tu foto con Gemini", confirmarFoto);
+    });
+    referencias.btnVolverQuiz.addEventListener("click", () => {
+        cerrarCamara();
+        mostrarPantalla("cuestionario");
+    });
+    referencias.btnDescargar.addEventListener("click", () => {
+        void ejecutarAccion("Descargando figurita", descargarFigurita);
+    });
+    referencias.btnCompartir.addEventListener("click", () => {
+        void ejecutarAccion("Compartiendo figurita", compartirFigurita);
+    });
+    referencias.btnReiniciar.addEventListener("click", reiniciarAplicacion);
+    window.addEventListener("beforeunload", cerrarCamara);
+}
 
-    if (!estado.fotoDataUrl && (estado.pantalla === "procesando" || estado.pantalla === "resultado")) {
-        estado.pantalla = "cuestionario";
-    }
-    if (estado.pasoActual >= PASOS_CUESTIONARIO.length) {
-        estado.pasoActual = PASOS_CUESTIONARIO.length - 1;
+async function arrancarBackend() {
+    try {
+        await iniciarSesionBackend();
+        await cargarEquiposBackend();
+        await cargarPreguntasBackend();
+        await sincronizarEstadoBackend();
+        backendInicializado = true;
+        renderizarCuestionario();
+        renderizarFoto();
+        renderizarResultado();
+        if (estado.pantalla === "procesando" && estado.fotoId) {
+            void ejecutarAccion("Retomando proceso pendiente", reanudarProcesamiento);
+        }
+    } catch (error) {
+        backendInicializado = false;
+        estado.tokenPublico = "";
+        estado.preguntasBackend = [];
+        persistirEstado();
+        mostrarToast(error.message || "No pudimos conectar con el backend.");
     }
 }
 
-function guardarEstado() {
+async function ejecutarAccion(texto, accion) {
+    if (accionEnCurso) {
+        return;
+    }
+    accionEnCurso = true;
+    mostrarToast(texto);
+    try {
+        await accion();
+    } catch (error) {
+        mostrarToast(error.message || "Ocurrio un error inesperado.");
+    } finally {
+        accionEnCurso = false;
+    }
+}
+
+function restaurarEstado() {
+    const bruto = sessionStorage.getItem(CLAVE_STORAGE);
+    if (!bruto) {
+        return { ...ESTADO_BASE };
+    }
+    try {
+        const data = JSON.parse(bruto);
+        return {
+            ...ESTADO_BASE,
+            ...data,
+            respuestas: { ...ESTADO_BASE.respuestas, ...(data.respuestas || {}) },
+        };
+    } catch (_error) {
+        return { ...ESTADO_BASE };
+    }
+}
+
+function persistirEstado() {
     sessionStorage.setItem(
-        "figu-maker-ia-estado",
+        CLAVE_STORAGE,
         JSON.stringify({
             pantalla: estado.pantalla,
             pasoActual: estado.pasoActual,
             respuestas: estado.respuestas,
+            tokenPublico: estado.tokenPublico,
+            preguntasBackend: estado.preguntasBackend,
+            equipos: estado.equipos,
             fotoDataUrl: estado.fotoDataUrl,
-            resultadoDataUrl: estado.resultadoDataUrl,
+            fotoId: estado.fotoId,
+            resultadoId: estado.resultadoId,
+            recorteUrl: estado.recorteUrl,
+            figuritaId: estado.figuritaId,
+            figuritaUrl: estado.figuritaUrl,
         }),
     );
 }
 
 function mostrarPantalla(nombre) {
-    limpiarTemporizadores();
     Object.entries(referencias.pantallas).forEach(([clave, nodo]) => {
-        if (nodo) {
-            nodo.hidden = clave !== nombre;
-        }
+        nodo.hidden = clave !== nombre;
     });
-
     estado.pantalla = nombre;
-    referencias.etiquetaPantalla.textContent = formatearPantalla(nombre);
-
+    referencias.etiquetaPantalla.textContent = nombre.charAt(0).toUpperCase() + nombre.slice(1);
     if (nombre === "cuestionario") {
         renderizarCuestionario();
     }
@@ -299,36 +297,27 @@ function mostrarPantalla(nombre) {
     }
     if (nombre === "procesando") {
         renderizarProcesamiento();
-        ejecutarProcesamiento();
     }
     if (nombre === "resultado") {
         renderizarResultado();
     }
-    guardarEstado();
+    persistirEstado();
 }
 
-function formatearPantalla(nombre) {
-    const mapa = {
-        inicio: "Inicio",
-        cuestionario: "Cuestionario",
-        foto: "Foto",
-        procesando: "Procesando",
-        resultado: "Resultado",
-    };
-    return mapa[nombre] || "Pantalla";
-}
-
-function manejarAnterior() {
-    ocultarErrorPregunta();
-    if (estado.pasoActual === 0) {
-        estado.pantalla = "inicio";
-        guardarEstado();
-        mostrarPantalla("inicio");
-        return;
-    }
-    estado.pasoActual -= 1;
-    guardarEstado();
-    renderizarCuestionario();
+function renderizarResumen() {
+    referencias.listaResumen.innerHTML = "";
+    PASOS_CUESTIONARIO.forEach((paso, indice) => {
+        const item = document.createElement("li");
+        item.className = "resumen-item";
+        if (estado.respuestas[paso.id]) {
+            item.classList.add("resumen-item--completo");
+        }
+        item.innerHTML = `
+            <strong>${paso.codigo}<span>Paso ${indice + 1}</span></strong>
+            <p>${formatearValorRespuesta(paso.id, estado.respuestas[paso.id]) || "Pendiente"}</p>
+        `;
+        referencias.listaResumen.appendChild(item);
+    });
 }
 
 function renderizarCuestionario() {
@@ -336,7 +325,6 @@ function renderizarCuestionario() {
     if (!paso) {
         return;
     }
-
     const progreso = Math.round((estado.pasoActual / PASOS_CUESTIONARIO.length) * 100);
     referencias.textoProgreso.textContent = `Paso ${estado.pasoActual + 1} de ${PASOS_CUESTIONARIO.length}`;
     referencias.porcentajeProgreso.textContent = `${progreso}%`;
@@ -344,7 +332,6 @@ function renderizarCuestionario() {
     referencias.codigoPregunta.textContent = paso.codigo;
     referencias.tituloPregunta.textContent = paso.etiqueta;
     referencias.ayudaPregunta.textContent = paso.ayuda;
-
     referencias.campoPregunta.innerHTML = "";
     ocultarErrorPregunta();
 
@@ -355,117 +342,92 @@ function renderizarCuestionario() {
     }
 
     referencias.btnAnterior.querySelector("span").textContent = estado.pasoActual === 0 ? "Volver" : "Atras";
-    referencias.btnSiguiente.disabled = !puedeAvanzarEnPaso(paso, estado.respuestas[paso.id]);
+    referencias.btnSiguiente.querySelector("span").textContent =
+        estado.pasoActual === PASOS_CUESTIONARIO.length - 1 ? "Ir a la foto" : "Siguiente";
+    referencias.btnSiguiente.disabled = !estado.respuestas[paso.id];
     renderizarResumen();
 }
 
 function renderizarCampoTexto(paso) {
-    const stack = document.createElement("div");
-    stack.className = "campo-pregunta__stack";
-
-    const input = document.createElement("input");
-    input.className = "campo-control";
-    input.type = paso.tipo === "fecha" ? "date" : paso.tipo === "numero" ? "number" : "text";
-    input.placeholder = paso.placeholder;
-    input.value = estado.respuestas[paso.id] || "";
-    if (paso.tipo === "numero") {
-        input.inputMode = "numeric";
-        input.step = "1";
-    }
-
-    const ayuda = document.createElement("p");
-    ayuda.className = "campo-ayuda";
-    ayuda.textContent = paso.tipo === "fecha"
-        ? "Usa una fecha real. La validamos para mantener una edad razonable."
-        : paso.tipo === "numero"
-            ? "El valor debe estar dentro de un rango coherente para una ficha deportiva."
-            : "Escribe el dato tal como quieres que aparezca en la experiencia.";
-
-    input.addEventListener("input", (evento) => {
-        estado.respuestas[paso.id] = evento.target.value;
-        referencias.btnSiguiente.disabled = !puedeAvanzarEnPaso(paso, estado.respuestas[paso.id]);
-        renderizarResumen();
-        guardarEstado();
-    });
-
+    referencias.campoPregunta.innerHTML = `
+        <div class="campo-pregunta__stack">
+            <input class="campo-control" id="input-paso" type="${paso.tipo === "fecha" ? "date" : paso.tipo === "numero" ? "number" : "text"}" placeholder="${paso.placeholder || ""}" value="${estado.respuestas[paso.id] || ""}">
+            <p class="campo-ayuda">${paso.tipo === "fecha"
+                ? "Usa una fecha real. El backend valida una edad razonable."
+                : paso.tipo === "numero"
+                    ? "El valor tiene que pasar validaciones coherentes para una ficha deportiva."
+                    : "Escribe el dato como quieres que aparezca en tu figurita."}</p>
+        </div>
+    `;
+    const input = document.getElementById("input-paso");
+    const sincronizarInput = (evento) => {
+        actualizarRespuestaPaso(paso.id, evento.target.value);
+    };
+    input.addEventListener("input", sincronizarInput);
+    input.addEventListener("change", sincronizarInput);
+    input.addEventListener("blur", sincronizarInput);
     input.addEventListener("keydown", (evento) => {
         if (evento.key === "Enter" && !referencias.btnSiguiente.disabled) {
-            avanzarCuestionario();
+            void ejecutarAccion("Guardando respuesta", avanzarCuestionario);
         }
     });
-
-    stack.appendChild(input);
-    stack.appendChild(ayuda);
-    referencias.campoPregunta.appendChild(stack);
     input.focus();
 }
 
 function renderizarCampoOpciones(paso) {
     const stack = document.createElement("div");
     stack.className = "campo-pregunta__stack";
-
     const grid = document.createElement("div");
     grid.className = "opciones-grid";
 
-    paso.opciones.forEach((opcion) => {
+    (paso.opciones || []).forEach((opcion) => {
         const boton = document.createElement("button");
         boton.type = "button";
         boton.className = "opcion-equipo";
-        boton.textContent = opcion;
         if (estado.respuestas[paso.id] === opcion) {
             boton.classList.add("opcion-equipo--activa");
         }
+        boton.textContent = opcion;
         boton.addEventListener("click", () => {
-            estado.respuestas[paso.id] = opcion;
-            guardarEstado();
-            renderizarResumen();
+            actualizarRespuestaPaso(paso.id, opcion);
             renderizarCampoOpciones(paso);
-            setTimeout(() => {
-                avanzarCuestionario();
-            }, 220);
         });
         grid.appendChild(boton);
     });
 
     const ayuda = document.createElement("p");
     ayuda.className = "campo-ayuda";
-    ayuda.textContent = "Pulsa sobre un equipo y avanzamos automaticamente al siguiente paso.";
-
+    ayuda.textContent = "La lista viene del backend y se sincroniza con la sesion anonima.";
     stack.appendChild(grid);
     stack.appendChild(ayuda);
     referencias.campoPregunta.innerHTML = "";
     referencias.campoPregunta.appendChild(stack);
-    referencias.btnSiguiente.disabled = !puedeAvanzarEnPaso(paso, estado.respuestas[paso.id]);
+    referencias.btnSiguiente.disabled = !estado.respuestas[paso.id];
 }
 
-function puedeAvanzarEnPaso(paso, valor) {
-    if (paso.tipo === "opcion") {
-        return Boolean((valor || "").trim());
-    }
-    return Boolean((valor || "").toString().trim());
-}
-
-function avanzarCuestionario() {
+async function avanzarCuestionario() {
+    exigirBackendListo();
     const paso = PASOS_CUESTIONARIO[estado.pasoActual];
-    const valor = estado.respuestas[paso.id];
-    const validacion = validarPaso(paso, valor);
-
+    sincronizarValorVisibleDelPaso(paso);
+    const validacion = validarPaso(paso, estado.respuestas[paso.id]);
     if (!validacion.valido) {
         mostrarErrorPregunta(validacion.mensaje);
         return;
     }
-
+    await sincronizarPasoConBackend(paso);
     ocultarErrorPregunta();
 
     if (estado.pasoActual === PASOS_CUESTIONARIO.length - 1) {
-        estado.pantalla = "foto";
-        guardarEstado();
         mostrarPantalla("foto");
+        mostrarToast("Ficha completada. Ahora vamos con la foto y el recorte de Gemini.");
+        void sincronizarEstadoBackend().catch((error) => {
+            mostrarToast(error.message || "No pudimos refrescar el estado de la sesion.");
+        });
         return;
     }
 
     estado.pasoActual += 1;
-    guardarEstado();
+    persistirEstado();
     renderizarCuestionario();
 }
 
@@ -474,46 +436,27 @@ function validarPaso(paso, valorBruto) {
     if (!valor) {
         return { valido: false, mensaje: "Completa este dato para seguir." };
     }
-
-    if (paso.id === "nombre" || paso.id === "apellido") {
-        if (valor.length < 2) {
-            return { valido: false, mensaje: "Necesitamos al menos 2 letras para que luzca bien en la figurita." };
-        }
-        if (valor.length > 32) {
-            return { valido: false, mensaje: "Este texto es demasiado largo para la composicion final." };
-        }
+    if ((paso.id === "nombre" || paso.id === "apellido") && (valor.length < 2 || valor.length > 32)) {
+        return { valido: false, mensaje: "Este dato debe tener entre 2 y 32 caracteres." };
     }
-
     if (paso.id === "fechaNacimiento") {
         const fecha = new Date(valor);
         if (Number.isNaN(fecha.getTime())) {
             return { valido: false, mensaje: "Ingresa una fecha valida." };
         }
-        const hoy = new Date();
-        let edad = hoy.getFullYear() - fecha.getFullYear();
-        const mes = hoy.getMonth() - fecha.getMonth();
-        if (mes < 0 || (mes === 0 && hoy.getDate() < fecha.getDate())) {
-            edad -= 1;
-        }
-        if (edad < 5 || edad > 100) {
-            return { valido: false, mensaje: "La edad debe estar entre 5 y 100 anos." };
-        }
     }
-
     if (paso.id === "altura") {
         const numero = Number(valor);
         if (!Number.isFinite(numero) || numero < 80 || numero > 250) {
             return { valido: false, mensaje: "La altura debe estar entre 80 y 250 cm." };
         }
     }
-
     if (paso.id === "peso") {
         const numero = Number(valor);
         if (!Number.isFinite(numero) || numero < 20 || numero > 250) {
             return { valido: false, mensaje: "El peso debe estar entre 20 y 250 kg." };
         }
     }
-
     return { valido: true };
 }
 
@@ -527,27 +470,657 @@ function ocultarErrorPregunta() {
     referencias.errorPregunta.textContent = "";
 }
 
-function renderizarResumen() {
-    referencias.listaResumen.innerHTML = "";
-    PASOS_CUESTIONARIO.forEach((paso, indice) => {
-        const item = document.createElement("li");
-        item.className = "resumen-item";
-        if (estado.respuestas[paso.id]) {
-            item.classList.add("resumen-item--completo");
+function actualizarRespuestaPaso(pasoId, valor) {
+    estado.respuestas[pasoId] = valor;
+    referencias.btnSiguiente.disabled = !String(valor ?? "").trim();
+    renderizarResumen();
+    persistirEstado();
+}
+
+function sincronizarValorVisibleDelPaso(paso) {
+    if (!paso || paso.tipo === "opcion") {
+        return;
+    }
+    const input = document.getElementById("input-paso");
+    if (!input) {
+        return;
+    }
+    actualizarRespuestaPaso(paso.id, input.value);
+}
+
+function renderizarFoto() {
+    const hayFoto = Boolean(estado.fotoDataUrl);
+    const camaraActiva = Boolean(estado.stream);
+    const backendDisponible = backendInicializado && Boolean(estado.tokenPublico);
+    referencias.previewFoto.hidden = !hayFoto;
+    referencias.previewFoto.src = hayFoto ? estado.fotoDataUrl : "";
+    referencias.placeholderFoto.hidden = hayFoto || camaraActiva;
+    referencias.videoCamara.hidden = !camaraActiva;
+    referencias.btnAbrirCamara.hidden = hayFoto || camaraActiva;
+    referencias.btnSacarFoto.hidden = !camaraActiva;
+    referencias.btnSubirArchivo.hidden = camaraActiva;
+    referencias.btnRepetirFoto.hidden = !hayFoto;
+    referencias.btnConfirmarFoto.hidden = !hayFoto;
+    referencias.btnConfirmarFoto.disabled = !hayFoto || !backendDisponible;
+    referencias.errorFoto.hidden = backendDisponible;
+    referencias.errorFoto.textContent = backendDisponible
+        ? ""
+        : `Backend desconectado. Levanta Django en ${API_BASE_URL} para subir y procesar la foto.`;
+}
+
+async function abrirCamara() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Tu navegador no permite abrir camara aqui. Usa la opcion de subir imagen.");
+    }
+    cerrarCamara();
+    estado.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } },
+        audio: false,
+    });
+    referencias.videoCamara.srcObject = estado.stream;
+    await referencias.videoCamara.play();
+    renderizarFoto();
+}
+
+function cerrarCamara() {
+    if (estado.stream) {
+        estado.stream.getTracks().forEach((track) => track.stop());
+        estado.stream = null;
+    }
+    referencias.videoCamara.srcObject = null;
+    renderizarFoto();
+}
+
+function tomarFoto() {
+    if (!referencias.videoCamara.videoWidth || !referencias.videoCamara.videoHeight) {
+        mostrarToast("La camara todavia no esta lista.");
+        return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = referencias.videoCamara.videoWidth;
+    canvas.height = referencias.videoCamara.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(referencias.videoCamara, 0, 0);
+    estado.fotoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    archivoActual = dataUrlAArchivo(estado.fotoDataUrl, "captura.jpg", "image/jpeg");
+    cerrarCamara();
+    persistirEstado();
+    renderizarFoto();
+}
+
+function manejarArchivoSeleccionado(evento) {
+    const archivo = evento.target.files?.[0];
+    if (!archivo) {
+        return;
+    }
+    void ejecutarAccion("Preparando tu imagen", async () => {
+        if (!archivo.type.startsWith("image/")) {
+            throw new Error("Selecciona un archivo de imagen valido.");
         }
+        const imagenNormalizada = await normalizarArchivoImagen(archivo);
+        archivoActual = imagenNormalizada.archivo;
+        estado.fotoDataUrl = imagenNormalizada.dataUrl;
+        persistirEstado();
+        renderizarFoto();
+        mostrarToast(
+            `Imagen lista para subir (${Math.round(imagenNormalizada.archivo.size / 1024)} KB).`
+        );
+    });
+    evento.target.value = "";
+}
 
-        const titulo = document.createElement("strong");
-        const textoPaso = document.createElement("span");
-        textoPaso.textContent = `Paso ${indice + 1}`;
-        titulo.textContent = paso.codigo;
-        titulo.appendChild(textoPaso);
+function limpiarFoto() {
+    archivoActual = null;
+    estado.fotoDataUrl = "";
+    estado.fotoId = "";
+    estado.resultadoId = "";
+    estado.recorteUrl = "";
+    estado.figuritaId = "";
+    estado.figuritaUrl = "";
+    renderizarFoto();
+    renderizarResultado();
+    persistirEstado();
+}
 
-        const valor = document.createElement("p");
-        valor.textContent = formatearValorRespuesta(paso.id, estado.respuestas[paso.id]) || "Pendiente";
+async function confirmarFoto() {
+    exigirBackendListo();
+    if (!estado.fotoDataUrl) {
+        throw new Error("Primero captura o sube una foto.");
+    }
+    if (!archivoActual) {
+        archivoActual = dataUrlAArchivo(estado.fotoDataUrl, "foto.jpg", "image/jpeg");
+    }
+    mostrarPantalla("procesando");
+    renderizarProcesamiento();
+    await subirFotoBackend();
+    await procesarFotoBackend();
+    await esperarRecorteBackend();
+    await generarFiguritaBackend();
+    await esperarFiguritaBackend();
+    mostrarPantalla("resultado");
+    mostrarToast("La figurita final ya se genero con el backend.");
+}
 
-        item.appendChild(titulo);
-        item.appendChild(valor);
-        referencias.listaResumen.appendChild(item);
+function renderizarProcesamiento() {
+    referencias.listaProcesos.innerHTML = "";
+    PASOS_PROCESAMIENTO.forEach((paso, indice) => {
+        const item = document.createElement("li");
+        item.className = "paso-proceso";
+        item.innerHTML = `
+            <span class="paso-proceso__indice">${indice + 1}</span>
+            <div class="paso-proceso__texto">
+                <strong>${paso.titulo}</strong>
+                <span>${paso.detalle}</span>
+            </div>
+            <span class="paso-proceso__estado">pendiente</span>
+        `;
+        referencias.listaProcesos.appendChild(item);
+    });
+    actualizarProgresoProcesamiento(0, 0, PASOS_PROCESAMIENTO[0].titulo, PASOS_PROCESAMIENTO[0].detalle);
+    referencias.previewProcesandoFoto.src = estado.fotoDataUrl || "assets/img/plantilla-figurita.png";
+}
+
+function actualizarProgresoProcesamiento(porcentaje, indiceActivo, titulo, detalle) {
+    const circunferencia = 2 * Math.PI * 92;
+    referencias.circuloProgreso.style.strokeDashoffset = String(circunferencia * (1 - porcentaje / 100));
+    referencias.valorProgreso.textContent = `${Math.round(porcentaje)}%`;
+    referencias.tituloProcesando.textContent = titulo;
+    referencias.textoProcesando.textContent = detalle;
+    [...referencias.listaProcesos.children].forEach((item, indice) => {
+        item.classList.remove("paso-proceso--activo", "paso-proceso--completo");
+        const estadoTexto = item.querySelector(".paso-proceso__estado");
+        if (indice < indiceActivo) {
+            item.classList.add("paso-proceso--completo");
+            estadoTexto.textContent = "listo";
+        } else if (indice === indiceActivo) {
+            item.classList.add("paso-proceso--activo");
+            estadoTexto.textContent = "activo";
+        } else {
+            estadoTexto.textContent = "pendiente";
+        }
+    });
+}
+
+function renderizarResultado() {
+    renderizarDatosFinales();
+    const hayFigurita = Boolean(estado.figuritaUrl);
+    referencias.resultadoFigura.dataset.vacio = hayFigurita ? "false" : "true";
+    referencias.imagenFiguritaFinal.src = hayFigurita ? estado.figuritaUrl : "";
+    referencias.btnDescargar.disabled = !hayFigurita;
+    referencias.btnCompartir.disabled = !hayFigurita;
+}
+
+function renderizarDatosFinales() {
+    const items = [
+        ["Nombre", estado.respuestas.nombre || "--"],
+        ["Apellido", estado.respuestas.apellido || "--"],
+        ["Fecha de nacimiento", formatearFecha(estado.respuestas.fechaNacimiento) || "--"],
+        ["Altura", estado.respuestas.altura ? `${estado.respuestas.altura} cm` : "--"],
+        ["Peso", estado.respuestas.peso ? `${estado.respuestas.peso} kg` : "--"],
+        ["Equipo", estado.respuestas.equipo || "--"],
+    ];
+    referencias.listaDatosFinales.innerHTML = "";
+    items.forEach(([titulo, valor]) => {
+        const item = document.createElement("div");
+        item.className = "lista-datos__item";
+        item.innerHTML = `<dt>${titulo}</dt><dd>${valor}</dd>`;
+        referencias.listaDatosFinales.appendChild(item);
+    });
+}
+
+async function iniciarSesionBackend() {
+    const datos = await solicitar("/api/sesiones/iniciar/", {
+        method: "POST",
+        body: estado.tokenPublico ? { token_publico: estado.tokenPublico } : {},
+    });
+    estado.tokenPublico = datos.sesion.token_publico;
+    persistirEstado();
+}
+
+async function cargarEquiposBackend() {
+    const equipos = await solicitar("/api/catalogos/equipos/");
+    estado.equipos = equipos;
+    PASOS_CUESTIONARIO.find((paso) => paso.id === "equipo").opciones = equipos.map((equipo) => equipo.nombre);
+    persistirEstado();
+}
+
+async function cargarPreguntasBackend() {
+    exigirTokenPublico();
+    const datos = await solicitar(`/api/sesiones/${estado.tokenPublico}/preguntas/`);
+    estado.preguntasBackend = datos.preguntas || [];
+    sincronizarRespuestasDesdeBackend(datos.preguntas || []);
+    persistirEstado();
+}
+
+function sincronizarRespuestasDesdeBackend(preguntas) {
+    preguntas.forEach((pregunta) => {
+        const localId = Object.keys(MAPA_CODIGOS_BACKEND).find((clave) => MAPA_CODIGOS_BACKEND[clave] === pregunta.codigo);
+        if (!localId || !pregunta.respuesta_actual) {
+            return;
+        }
+        estado.respuestas[localId] = pregunta.respuesta_actual.valor || "";
+    });
+}
+
+async function sincronizarEstadoBackend() {
+    exigirTokenPublico();
+    const sesion = await solicitar(`/api/sesiones/${estado.tokenPublico}/estado/`);
+    if (sesion.ultima_foto?.id) {
+        estado.fotoId = sesion.ultima_foto.id;
+    }
+    if (sesion.ultimo_recorte?.id && estado.fotoId) {
+        await consultarRecorteBackend();
+    }
+    if (sesion.ultima_figurita?.id) {
+        estado.figuritaId = sesion.ultima_figurita.id;
+        await consultarFiguritaBackend();
+    }
+    persistirEstado();
+}
+
+async function sincronizarPasoConBackend(paso) {
+    exigirTokenPublico();
+    const pregunta = obtenerPreguntaBackend(paso.id);
+    if (!pregunta) {
+        throw new Error("El cuestionario todavia no se sincronizo con el backend. Recarga la pagina.");
+    }
+    const valor = estado.respuestas[paso.id];
+    const body = { pregunta_id: pregunta.id };
+    if (paso.id === "equipo") {
+        const equipo = estado.equipos.find((item) => item.nombre === valor);
+        if (!equipo) {
+            throw new Error("Ese equipo no esta disponible en el backend actual.");
+        }
+        body.equipo_id = equipo.id;
+    } else {
+        body.valor = paso.tipo === "numero" ? Number(valor) : valor;
+    }
+    await solicitar(`/api/sesiones/${estado.tokenPublico}/responder/`, {
+        method: "POST",
+        body,
+    });
+}
+
+function obtenerPreguntaBackend(localId) {
+    return estado.preguntasBackend.find((pregunta) => pregunta.codigo === MAPA_CODIGOS_BACKEND[localId]);
+}
+
+async function subirFotoBackend() {
+    exigirTokenPublico();
+    actualizarProgresoProcesamiento(12, 0, PASOS_PROCESAMIENTO[0].titulo, PASOS_PROCESAMIENTO[0].detalle);
+    const formData = new FormData();
+    formData.append("archivo", archivoActual, archivoActual.name || "foto.jpg");
+    const datos = await solicitar(`/api/sesiones/${estado.tokenPublico}/imagenes/subir/`, {
+        method: "POST",
+        body: formData,
+        timeoutMs: 45000,
+    });
+    estado.fotoId = datos.foto.id;
+    persistirEstado();
+    actualizarProgresoProcesamiento(24, 1, PASOS_PROCESAMIENTO[1].titulo, PASOS_PROCESAMIENTO[1].detalle);
+}
+
+async function procesarFotoBackend() {
+    actualizarProgresoProcesamiento(30, 1, PASOS_PROCESAMIENTO[1].titulo, PASOS_PROCESAMIENTO[1].detalle);
+    exigirTokenPublico();
+    const datos = await solicitar(`/api/imagenes/${estado.fotoId}/procesar/`, {
+        method: "POST",
+        body: { token_publico: estado.tokenPublico },
+        timeoutMs: 180000,
+    });
+    estado.resultadoId = datos.resultado.id;
+    persistirEstado();
+}
+
+async function esperarRecorteBackend() {
+    let porcentaje = 28;
+    for (let intento = 0; intento < 50; intento += 1) {
+        await esperar(1800);
+        porcentaje = Math.min(70, porcentaje + 3);
+        actualizarProgresoProcesamiento(porcentaje, 1, PASOS_PROCESAMIENTO[1].titulo, PASOS_PROCESAMIENTO[1].detalle);
+        const resultado = await consultarRecorteBackend();
+        if (resultado?.estado === "completado") {
+            actualizarProgresoProcesamiento(74, 2, PASOS_PROCESAMIENTO[2].titulo, PASOS_PROCESAMIENTO[2].detalle);
+            return;
+        }
+        if (resultado?.estado === "error") {
+            throw new Error("El backend no pudo completar el recorte de la imagen.");
+        }
+    }
+    throw new Error("El recorte tardo demasiado en completarse.");
+}
+
+async function consultarRecorteBackend() {
+    const resultado = await solicitar(`/api/imagenes/${estado.fotoId}/resultado/`);
+    estado.resultadoId = resultado.id;
+    estado.recorteUrl = absolutizarUrl(resultado.png_transparente_url || "");
+    persistirEstado();
+    return resultado;
+}
+
+async function generarFiguritaBackend() {
+    exigirTokenPublico();
+    actualizarProgresoProcesamiento(82, 3, PASOS_PROCESAMIENTO[3].titulo, PASOS_PROCESAMIENTO[3].detalle);
+    await sincronizarEstadoBackend();
+    if (estado.figuritaId) {
+        return;
+    }
+    if (!estado.resultadoId) {
+        throw new Error("Todavia no hay un recorte completado para componer la figurita.");
+    }
+    const respuesta = await solicitar(`/api/sesiones/${estado.tokenPublico}/figuritas/generar/`, {
+        method: "POST",
+        body: { resultado_recorte_id: estado.resultadoId },
+    });
+    estado.figuritaId = respuesta.figurita.id;
+    estado.figuritaUrl = absolutizarUrl(
+        respuesta.figurita.imagen_final_url || respuesta.figurita.imagen_preview_url || ""
+    );
+    persistirEstado();
+}
+
+async function esperarFiguritaBackend() {
+    if (estado.figuritaId && estado.figuritaUrl) {
+        actualizarProgresoProcesamiento(100, 4, PASOS_PROCESAMIENTO[4].titulo, PASOS_PROCESAMIENTO[4].detalle);
+        renderizarResultado();
+        return;
+    }
+    let porcentaje = 86;
+    for (let intento = 0; intento < 45; intento += 1) {
+        await esperar(1600);
+        porcentaje = Math.min(98, porcentaje + 2);
+        actualizarProgresoProcesamiento(
+            porcentaje,
+            4,
+            PASOS_PROCESAMIENTO[4].titulo,
+            PASOS_PROCESAMIENTO[4].detalle
+        );
+        const figurita = await consultarFiguritaBackend();
+        if (figurita?.estado === "completado") {
+            actualizarProgresoProcesamiento(100, 4, PASOS_PROCESAMIENTO[4].titulo, "Figurita lista para descargar.");
+            renderizarResultado();
+            return;
+        }
+        if (figurita?.estado === "error") {
+            throw new Error(figurita.mensaje_error || "La generacion final de la figurita fallo.");
+        }
+    }
+    throw new Error("La figurita tardo demasiado en terminar de generarse.");
+}
+
+async function consultarFiguritaBackend() {
+    if (!estado.figuritaId) {
+        await sincronizarEstadoBackend();
+    }
+    if (!estado.figuritaId) {
+        return null;
+    }
+    const figurita = await solicitar(`/api/figuritas/${estado.figuritaId}/`);
+    estado.figuritaUrl = absolutizarUrl(
+        figurita.imagen_final_url || figurita.imagen_preview_url || ""
+    );
+    persistirEstado();
+    renderizarResultado();
+    return figurita;
+}
+
+async function reanudarProcesamiento() {
+    mostrarPantalla("procesando");
+    renderizarProcesamiento();
+    await sincronizarEstadoBackend();
+
+    if (estado.figuritaId) {
+        const figurita = await consultarFiguritaBackend();
+        if (figurita?.estado === "completado" && estado.figuritaUrl) {
+            mostrarPantalla("resultado");
+            mostrarToast("Encontramos una figurita ya terminada para esta sesion.");
+            return;
+        }
+        await esperarFiguritaBackend();
+        mostrarPantalla("resultado");
+        return;
+    }
+
+    if (!estado.fotoId) {
+        mostrarPantalla("foto");
+        return;
+    }
+
+    const recorte = await consultarRecorteBackend().catch(() => null);
+    if (recorte?.estado === "completado") {
+        await generarFiguritaBackend();
+        await esperarFiguritaBackend();
+        mostrarPantalla("resultado");
+        return;
+    }
+
+    await esperarRecorteBackend();
+    await generarFiguritaBackend();
+    await esperarFiguritaBackend();
+    mostrarPantalla("resultado");
+}
+
+async function descargarFigurita() {
+    if (!estado.figuritaUrl) {
+        throw new Error("Todavia no hay una figurita final para descargar.");
+    }
+    const respuesta = await fetch(estado.figuritaUrl);
+    if (!respuesta.ok) {
+        throw new Error("No pudimos descargar la imagen final.");
+    }
+    const blob = await respuesta.blob();
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = construirNombreArchivo();
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    URL.revokeObjectURL(url);
+    mostrarToast("Descarga iniciada.");
+}
+
+async function compartirFigurita() {
+    if (!estado.figuritaUrl) {
+        throw new Error("Todavia no hay una figurita lista para compartir.");
+    }
+    if (!navigator.share) {
+        await navigator.clipboard.writeText(estado.figuritaUrl);
+        mostrarToast("Tu navegador no comparte archivos aqui. Copiamos el enlace final.");
+        return;
+    }
+
+    const respuesta = await fetch(estado.figuritaUrl);
+    if (!respuesta.ok) {
+        throw new Error("No pudimos preparar la figurita para compartir.");
+    }
+    const blob = await respuesta.blob();
+    const archivo = new File([blob], construirNombreArchivo(), { type: blob.type || "image/png" });
+    const payload = {
+        title: "Mi figurita mundialista",
+        text: "Mira la figurita que arme con Figu Maker IA.",
+    };
+    if (navigator.canShare?.({ files: [archivo] })) {
+        payload.files = [archivo];
+    } else {
+        payload.url = estado.figuritaUrl;
+    }
+    await navigator.share(payload);
+}
+
+function reiniciarAplicacion() {
+    cerrarCamara();
+    sessionStorage.removeItem(CLAVE_STORAGE);
+    Object.assign(estado, restaurarEstado());
+    archivoActual = null;
+    renderizarResumen();
+    renderizarCuestionario();
+    renderizarFoto();
+    renderizarResultado();
+    mostrarPantalla("inicio");
+    void arrancarBackend();
+}
+
+function exigirBackendListo() {
+    if (!backendInicializado || !estado.tokenPublico) {
+        throw new Error(
+            `El backend no esta disponible en ${API_BASE_URL}. Levanta Django en el puerto 8000 y recarga la pagina.`
+        );
+    }
+}
+
+function exigirTokenPublico() {
+    if (!estado.tokenPublico) {
+        throw new Error(
+            `No existe una sesion activa. Verifica que el backend responda en ${API_BASE_URL} y vuelve a cargar la pagina.`
+        );
+    }
+}
+
+let temporizadorToast = null;
+
+function mostrarToast(mensaje) {
+    if (!mensaje) {
+        return;
+    }
+    referencias.toast.textContent = mensaje;
+    referencias.toast.hidden = false;
+    if (temporizadorToast) {
+        window.clearTimeout(temporizadorToast);
+    }
+    temporizadorToast = window.setTimeout(() => {
+        referencias.toast.hidden = true;
+    }, 2800);
+}
+
+async function solicitar(ruta, opciones = {}) {
+    const config = {
+        method: opciones.method || "GET",
+        headers: {},
+    };
+    if (opciones.body instanceof FormData) {
+        config.body = opciones.body;
+    } else if (opciones.body !== undefined) {
+        config.headers["Content-Type"] = "application/json";
+        config.body = JSON.stringify(opciones.body);
+    }
+
+    const controller = new AbortController();
+    const timeoutMs = opciones.timeoutMs || 20000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    config.signal = controller.signal;
+
+    let respuesta;
+    try {
+        respuesta = await fetch(`${API_BASE_URL}${ruta}`, config);
+    } catch (error) {
+        window.clearTimeout(timeoutId);
+        if (error.name === "AbortError") {
+            throw new Error(
+                `La solicitud al backend tardo demasiado (${Math.round(timeoutMs / 1000)}s). Intenta con una imagen mas liviana o vuelve a probar.`
+            );
+        }
+        throw new Error(
+            `No pudimos conectar con el backend en ${API_BASE_URL}. Asegurate de tener Django corriendo en el puerto 8000.`
+        );
+    }
+    window.clearTimeout(timeoutId);
+    const esJson = (respuesta.headers.get("content-type") || "").includes("application/json");
+    const payload = esJson ? await respuesta.json() : null;
+
+    if (!respuesta.ok) {
+        const mensaje =
+            payload?.error?.mensaje ||
+            payload?.detail ||
+            payload?.mensaje ||
+            `La solicitud fallo con estado ${respuesta.status}.`;
+        throw new Error(mensaje);
+    }
+    return payload;
+}
+
+function absolutizarUrl(url) {
+    if (!url) {
+        return "";
+    }
+    if (/^https?:\/\//i.test(url)) {
+        return url;
+    }
+    return new URL(url, API_BASE_URL).toString();
+}
+
+function dataUrlAArchivo(dataUrl, nombre, mimeType) {
+    const [cabecera, contenido] = dataUrl.split(",");
+    const mime = mimeType || cabecera.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+    const binario = window.atob(contenido);
+    const bytes = new Uint8Array(binario.length);
+    for (let indice = 0; indice < binario.length; indice += 1) {
+        bytes[indice] = binario.charCodeAt(indice);
+    }
+    return new File([bytes], nombre, { type: mime });
+}
+
+async function normalizarArchivoImagen(archivo) {
+    const dataUrlOriginal = await leerArchivoComoDataUrl(archivo);
+    const imagen = await cargarImagen(dataUrlOriginal);
+    const maxDimension = 1600;
+    const { width, height } = calcularDimensionEscalada(
+        imagen.naturalWidth || imagen.width,
+        imagen.naturalHeight || imagen.height,
+        maxDimension
+    );
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const contexto = canvas.getContext("2d", { alpha: false });
+    contexto.fillStyle = "#ffffff";
+    contexto.fillRect(0, 0, width, height);
+    contexto.drawImage(imagen, 0, 0, width, height);
+
+    const dataUrlNormalizada = canvas.toDataURL("image/jpeg", 0.9);
+    const nombreBase = (archivo.name || "foto")
+        .replace(/\.[^.]+$/, "")
+        .replace(/\s+/g, "-")
+        .toLowerCase();
+    return {
+        dataUrl: dataUrlNormalizada,
+        archivo: dataUrlAArchivo(dataUrlNormalizada, `${nombreBase || "foto"}.jpg`, "image/jpeg"),
+    };
+}
+
+function leerArchivoComoDataUrl(archivo) {
+    return new Promise((resolve, reject) => {
+        const lector = new FileReader();
+        lector.onload = () => resolve(lector.result);
+        lector.onerror = () => reject(new Error("No pudimos leer la imagen seleccionada."));
+        lector.readAsDataURL(archivo);
+    });
+}
+
+function cargarImagen(src) {
+    return new Promise((resolve, reject) => {
+        const imagen = new Image();
+        imagen.onload = () => resolve(imagen);
+        imagen.onerror = () => reject(new Error("No pudimos procesar la imagen elegida."));
+        imagen.src = src;
+    });
+}
+
+function calcularDimensionEscalada(ancho, alto, maxDimension) {
+    if (Math.max(ancho, alto) <= maxDimension) {
+        return { width: ancho, height: alto };
+    }
+    const proporcion = maxDimension / Math.max(ancho, alto);
+    return {
+        width: Math.max(1, Math.round(ancho * proporcion)),
+        height: Math.max(1, Math.round(alto * proporcion)),
+    };
+}
+
+function esperar(ms) {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
     });
 }
 
@@ -564,513 +1137,7 @@ function formatearValorRespuesta(id, valor) {
     if (id === "peso") {
         return `${valor} kg`;
     }
-    return valor;
-}
-
-function renderizarFoto() {
-    const hayFoto = Boolean(estado.fotoDataUrl);
-    const camaraActiva = Boolean(estado.stream);
-
-    referencias.previewFoto.hidden = !hayFoto;
-    referencias.previewFoto.src = hayFoto ? estado.fotoDataUrl : "";
-    referencias.placeholderFoto.hidden = hayFoto || camaraActiva;
-    referencias.videoCamara.hidden = !camaraActiva;
-    referencias.btnAbrirCamara.hidden = hayFoto || camaraActiva;
-    referencias.btnSacarFoto.hidden = !camaraActiva;
-    referencias.btnSubirArchivo.hidden = camaraActiva;
-    referencias.btnRepetirFoto.hidden = !hayFoto;
-    referencias.btnConfirmarFoto.hidden = !hayFoto;
-
-    if (hayFoto) {
-        referencias.previewProcesandoFoto.src = estado.fotoDataUrl;
-    }
-    guardarEstado();
-}
-
-async function abrirCamara() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        mostrarErrorFoto("Este navegador no permite acceder a la camara aqui. Usa la opcion de subir imagen.");
-        return;
-    }
-
-    try {
-        cerrarCamara();
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: "user",
-                width: { ideal: 720 },
-                height: { ideal: 960 },
-            },
-            audio: false,
-        });
-        estado.stream = stream;
-        referencias.videoCamara.srcObject = stream;
-        referencias.videoCamara.play().catch(() => {});
-        ocultarErrorFoto();
-        renderizarFoto();
-    } catch (_error) {
-        mostrarErrorFoto("No se pudo abrir la camara. Si estas en file local o sin permisos, prueba subiendo una foto.");
-    }
-}
-
-function cerrarCamara() {
-    if (estado.stream) {
-        estado.stream.getTracks().forEach((track) => track.stop());
-        estado.stream = null;
-    }
-    if (referencias.videoCamara) {
-        referencias.videoCamara.srcObject = null;
-    }
-    renderizarFoto();
-}
-
-function tomarFoto() {
-    if (!referencias.videoCamara.videoWidth || !referencias.videoCamara.videoHeight) {
-        mostrarErrorFoto("La camara aun no esta lista. Espera un instante o sube una imagen.");
-        return;
-    }
-
-    const lienzo = document.createElement("canvas");
-    lienzo.width = referencias.videoCamara.videoWidth;
-    lienzo.height = referencias.videoCamara.videoHeight;
-    const contexto = lienzo.getContext("2d");
-    contexto.drawImage(referencias.videoCamara, 0, 0, lienzo.width, lienzo.height);
-    estado.fotoDataUrl = lienzo.toDataURL("image/jpeg", 0.92);
-    cerrarCamara();
-    ocultarErrorFoto();
-    renderizarFoto();
-}
-
-function manejarArchivoSeleccionado(evento) {
-    const archivo = evento.target.files && evento.target.files[0];
-    if (!archivo) {
-        return;
-    }
-    if (!archivo.type.startsWith("image/")) {
-        mostrarErrorFoto("Selecciona un archivo de imagen valido.");
-        evento.target.value = "";
-        return;
-    }
-    const lector = new FileReader();
-    lector.onload = () => {
-        estado.fotoDataUrl = lector.result;
-        ocultarErrorFoto();
-        renderizarFoto();
-    };
-    lector.onerror = () => {
-        mostrarErrorFoto("No pudimos leer ese archivo. Intenta con otra imagen.");
-    };
-    lector.readAsDataURL(archivo);
-    evento.target.value = "";
-}
-
-function limpiarFoto() {
-    estado.fotoDataUrl = "";
-    estado.resultadoDataUrl = "";
-    ocultarErrorFoto();
-    renderizarFoto();
-}
-
-function confirmarFoto() {
-    if (!estado.fotoDataUrl) {
-        mostrarErrorFoto("Primero elige o captura una foto.");
-        return;
-    }
-    estado.pantalla = "procesando";
-    guardarEstado();
-    mostrarPantalla("procesando");
-}
-
-function mostrarErrorFoto(mensaje) {
-    referencias.errorFoto.hidden = false;
-    referencias.errorFoto.textContent = mensaje;
-}
-
-function ocultarErrorFoto() {
-    referencias.errorFoto.hidden = true;
-    referencias.errorFoto.textContent = "";
-}
-
-function renderizarProcesamiento() {
-    referencias.listaProcesos.innerHTML = "";
-    PASOS_PROCESAMIENTO.forEach((paso, indice) => {
-        const item = document.createElement("li");
-        item.className = "paso-proceso";
-        item.dataset.index = String(indice);
-        item.innerHTML = `
-            <span class="paso-proceso__indice">${indice + 1}</span>
-            <div class="paso-proceso__texto">
-                <strong>${paso.titulo}</strong>
-                <span>${paso.detalle}</span>
-            </div>
-            <span class="paso-proceso__estado">pendiente</span>
-        `;
-        referencias.listaProcesos.appendChild(item);
-    });
-    actualizarAnillo(0);
-    referencias.tituloProcesando.textContent = "Preparando tu figurita";
-    referencias.textoProcesando.textContent = "Subimos, analizamos y componemos la experiencia como en el demo original.";
-    referencias.previewProcesandoFoto.src = estado.fotoDataUrl || "assets/img/plantilla-figurita.png";
-}
-
-async function ejecutarProcesamiento() {
-    if (estado.procesando) {
-        return;
-    }
-
-    estado.procesando = true;
-    const duracionTotal = PASOS_PROCESAMIENTO.reduce((acumulado, paso) => acumulado + paso.duracion, 0);
-    let duracionAcumulada = 0;
-
-    for (let indice = 0; indice < PASOS_PROCESAMIENTO.length; indice += 1) {
-        const paso = PASOS_PROCESAMIENTO[indice];
-        marcarPasoProceso(indice);
-        referencias.tituloProcesando.textContent = paso.titulo;
-        referencias.textoProcesando.textContent = paso.detalle;
-
-        await new Promise((resolver) => {
-            const inicio = performance.now();
-            const intervalo = window.setInterval(() => {
-                const transcurrido = performance.now() - inicio;
-                const ratio = Math.min(transcurrido / paso.duracion, 1);
-                const progreso = ((duracionAcumulada + paso.duracion * ratio) / duracionTotal) * 100;
-                actualizarAnillo(progreso);
-                if (ratio >= 1) {
-                    clearInterval(intervalo);
-                    resolver();
-                }
-            }, 40);
-            estado.temporizadores.push(intervalo);
-        });
-
-        duracionAcumulada += paso.duracion;
-    }
-
-    marcarPasoProceso(PASOS_PROCESAMIENTO.length);
-    actualizarAnillo(100);
-    await generarFiguritaFinal();
-    estado.procesando = false;
-    estado.pantalla = "resultado";
-    guardarEstado();
-    setTimeout(() => {
-        mostrarPantalla("resultado");
-    }, 280);
-}
-
-function marcarPasoProceso(indiceActivo) {
-    const items = referencias.listaProcesos.querySelectorAll(".paso-proceso");
-    items.forEach((item, indice) => {
-        item.classList.remove("paso-proceso--activo", "paso-proceso--completo");
-        const estadoTexto = item.querySelector(".paso-proceso__estado");
-        if (indice < indiceActivo) {
-            item.classList.add("paso-proceso--completo");
-            estadoTexto.textContent = "listo";
-        } else if (indice === indiceActivo) {
-            item.classList.add("paso-proceso--activo");
-            estadoTexto.textContent = "activo";
-        } else {
-            estadoTexto.textContent = "pendiente";
-        }
-    });
-}
-
-function actualizarAnillo(valor) {
-    const progreso = Math.max(0, Math.min(100, valor));
-    const circunferencia = 2 * Math.PI * 92;
-    const offset = circunferencia * (1 - progreso / 100);
-    referencias.circuloProgreso.style.strokeDashoffset = String(offset);
-    referencias.valorProgreso.textContent = `${Math.round(progreso)}%`;
-}
-
-async function generarFiguritaFinal() {
-    const canvas = referencias.canvasFigurita;
-    const ctx = canvas.getContext("2d");
-    const ancho = canvas.width;
-    const alto = canvas.height;
-
-    const plantilla = await cargarImagen("assets/img/plantilla-figurita.png");
-    const foto = estado.fotoDataUrl ? await cargarImagen(estado.fotoDataUrl) : null;
-
-    ctx.clearRect(0, 0, ancho, alto);
-
-    const fondo = ctx.createLinearGradient(0, 0, ancho, alto);
-    fondo.addColorStop(0, "#09121f");
-    fondo.addColorStop(0.45, "#0f233e");
-    fondo.addColorStop(1, "#09111d");
-    ctx.fillStyle = fondo;
-    ctx.fillRect(0, 0, ancho, alto);
-
-    pintarResplandor(ctx, ancho * 0.18, alto * 0.17, 240, "rgba(255, 77, 94, 0.24)");
-    pintarResplandor(ctx, ancho * 0.82, alto * 0.2, 250, "rgba(69, 140, 255, 0.24)");
-    pintarResplandor(ctx, ancho * 0.5, alto * 0.85, 260, "rgba(32, 202, 123, 0.18)");
-
-    ctx.save();
-    ctx.globalAlpha = 0.16;
-    dibujarImagenCubierta(ctx, plantilla, 0, 0, ancho, alto);
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.14;
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 470px Orbitron, sans-serif";
-    ctx.fillText("26", 48, 360);
-    ctx.restore();
-
-    const xFoto = 118;
-    const yFoto = 138;
-    const anchoFoto = 664;
-    const altoFoto = 708;
-
-    pintarRectanguloRedondeado(ctx, xFoto - 8, yFoto - 8, anchoFoto + 16, altoFoto + 16, 36, "rgba(255,255,255,0.14)");
-    pintarRectanguloRedondeado(ctx, xFoto, yFoto, anchoFoto, altoFoto, 32, "rgba(255,255,255,0.08)");
-
-    ctx.save();
-    crearRecorteRedondeado(ctx, xFoto, yFoto, anchoFoto, altoFoto, 32);
-    ctx.clip();
-    if (foto) {
-        dibujarImagenCubierta(ctx, foto, xFoto, yFoto, anchoFoto, altoFoto);
-    } else {
-        const grad = ctx.createLinearGradient(xFoto, yFoto, xFoto, yFoto + altoFoto);
-        grad.addColorStop(0, "#18324e");
-        grad.addColorStop(1, "#0d192a");
-        ctx.fillStyle = grad;
-        ctx.fillRect(xFoto, yFoto, anchoFoto, altoFoto);
-    }
-    const velo = ctx.createLinearGradient(0, yFoto, 0, yFoto + altoFoto);
-    velo.addColorStop(0, "rgba(9, 18, 31, 0.08)");
-    velo.addColorStop(1, "rgba(9, 18, 31, 0.45)");
-    ctx.fillStyle = velo;
-    ctx.fillRect(xFoto, yFoto, anchoFoto, altoFoto);
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.12;
-    dibujarImagenCubierta(ctx, plantilla, xFoto, yFoto, anchoFoto, altoFoto);
-    ctx.restore();
-
-    pintarFranja(ctx, 96, 906, 708, 114, 28, ["#0c566a", "#1594a7"]);
-    pintarFranja(ctx, 96, 1040, 566, 86, 24, ["#0c566a", "#1594a7"]);
-    pintarFranja(ctx, 680, 1040, 154, 86, 22, ["#ffd83f", "#f3a600"]);
-
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,0.14)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(680, 1040, 154, 86);
-    ctx.restore();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "500 42px Montserrat, sans-serif";
-    ctx.fillText((estado.respuestas.nombre || "Jugador").toUpperCase(), 132, 971);
-    ctx.font = "800 42px Montserrat, sans-serif";
-    const anchoNombre = ctx.measureText((estado.respuestas.nombre || "Jugador").toUpperCase()).width;
-    ctx.fillText((estado.respuestas.apellido || "Premium").toUpperCase(), 152 + anchoNombre, 971);
-
-    ctx.font = "500 28px Montserrat, sans-serif";
-    const lineaSecundaria = [
-        formatearFecha(estado.respuestas.fechaNacimiento),
-        `${estado.respuestas.altura || "--"} cm`,
-        `${estado.respuestas.peso || "--"} kg`,
-    ].join("  |  ");
-    ctx.fillText(lineaSecundaria, 130, 1018);
-
-    ctx.font = "800 34px Montserrat, sans-serif";
-    ctx.fillText((estado.respuestas.equipo || "Equipo").toUpperCase(), 130, 1096);
-    ctx.font = "600 30px Montserrat, sans-serif";
-    ctx.fillText("(ARG)", 540, 1096);
-
-    ctx.fillStyle = "#1d1220";
-    ctx.font = "900 26px Orbitron, sans-serif";
-    ctx.fillText("PANINI", 702, 1095);
-
-    ctx.save();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 74px Orbitron, sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText("26", 840, 122);
-    ctx.font = "800 30px Orbitron, sans-serif";
-    ctx.fillText("FIFA", 840, 164);
-    ctx.restore();
-
-    ctx.save();
-    ctx.translate(865, 616);
-    ctx.rotate(Math.PI / 2);
-    ctx.font = "900 60px Orbitron, sans-serif";
-    ctx.strokeStyle = "rgba(255,255,255,0.72)";
-    ctx.lineWidth = 5;
-    ctx.strokeText("ARG", 0, 0);
-    ctx.fillStyle = "rgba(255,255,255,0.16)";
-    ctx.fillText("ARG", 0, 0);
-    ctx.restore();
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(780, 760, 58, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-    ctx.clip();
-    ctx.fillStyle = "#7bc1ff";
-    ctx.fillRect(722, 716, 116, 24);
-    ctx.fillRect(722, 780, 116, 24);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(722, 740, 116, 40);
-    ctx.fillStyle = "#d0a13f";
-    ctx.beginPath();
-    ctx.arc(780, 760, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    estado.resultadoDataUrl = canvas.toDataURL("image/png");
-    renderizarDatosFinales();
-    guardarEstado();
-}
-
-function pintarResplandor(ctx, x, y, radio, color) {
-    const gradiente = ctx.createRadialGradient(x, y, 0, x, y, radio);
-    gradiente.addColorStop(0, color);
-    gradiente.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = gradiente;
-    ctx.fillRect(x - radio, y - radio, radio * 2, radio * 2);
-}
-
-function pintarFranja(ctx, x, y, ancho, alto, radio, colores) {
-    const gradiente = ctx.createLinearGradient(x, y, x + ancho, y + alto);
-    gradiente.addColorStop(0, colores[0]);
-    gradiente.addColorStop(1, colores[1]);
-    pintarRectanguloRedondeado(ctx, x, y, ancho, alto, radio, gradiente);
-}
-
-function pintarRectanguloRedondeado(ctx, x, y, ancho, alto, radio, relleno) {
-    ctx.save();
-    crearRecorteRedondeado(ctx, x, y, ancho, alto, radio);
-    ctx.fillStyle = relleno;
-    ctx.fill();
-    ctx.restore();
-}
-
-function crearRecorteRedondeado(ctx, x, y, ancho, alto, radio) {
-    ctx.beginPath();
-    ctx.moveTo(x + radio, y);
-    ctx.arcTo(x + ancho, y, x + ancho, y + alto, radio);
-    ctx.arcTo(x + ancho, y + alto, x, y + alto, radio);
-    ctx.arcTo(x, y + alto, x, y, radio);
-    ctx.arcTo(x, y, x + ancho, y, radio);
-    ctx.closePath();
-}
-
-function dibujarImagenCubierta(ctx, imagen, x, y, ancho, alto) {
-    const ratio = Math.max(ancho / imagen.width, alto / imagen.height);
-    const anchoDibujo = imagen.width * ratio;
-    const altoDibujo = imagen.height * ratio;
-    const xDibujo = x + (ancho - anchoDibujo) / 2;
-    const yDibujo = y + (alto - altoDibujo) / 2;
-    ctx.drawImage(imagen, xDibujo, yDibujo, anchoDibujo, altoDibujo);
-}
-
-function renderizarResultado() {
-    renderizarDatosFinales();
-    if (estado.resultadoDataUrl) {
-        referencias.btnDescargar.disabled = false;
-        referencias.btnCompartir.disabled = false;
-    }
-}
-
-function renderizarDatosFinales() {
-    const items = [
-        ["Nombre", estado.respuestas.nombre || "Jugador"],
-        ["Apellido", estado.respuestas.apellido || "Premium"],
-        ["Fecha de nacimiento", formatearFecha(estado.respuestas.fechaNacimiento) || "--"],
-        ["Altura", estado.respuestas.altura ? `${estado.respuestas.altura} cm` : "--"],
-        ["Peso", estado.respuestas.peso ? `${estado.respuestas.peso} kg` : "--"],
-        ["Equipo", estado.respuestas.equipo || "--"],
-    ];
-    referencias.listaDatosFinales.innerHTML = "";
-    items.forEach(([termino, definicion]) => {
-        const wrapper = document.createElement("div");
-        wrapper.className = "lista-datos__item";
-        const dt = document.createElement("dt");
-        dt.textContent = termino;
-        const dd = document.createElement("dd");
-        dd.textContent = definicion;
-        wrapper.appendChild(dt);
-        wrapper.appendChild(dd);
-        referencias.listaDatosFinales.appendChild(wrapper);
-    });
-}
-
-function descargarFigurita() {
-    if (!estado.resultadoDataUrl) {
-        mostrarToast("Todavia no tenemos una figurita generada para descargar.");
-        return;
-    }
-    const enlace = document.createElement("a");
-    enlace.href = estado.resultadoDataUrl;
-    enlace.download = construirNombreArchivo();
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-    mostrarToast("Descarga iniciada.");
-}
-
-async function compartirFigurita() {
-    if (!estado.resultadoDataUrl) {
-        mostrarToast("Genera primero la figurita final.");
-        return;
-    }
-
-    if (!navigator.share) {
-        mostrarToast("Tu navegador no soporta compartir archivos. Usa Descargar PNG.");
-        return;
-    }
-
-    try {
-        const archivo = await convertirDataUrlEnArchivo(estado.resultadoDataUrl, construirNombreArchivo());
-        await navigator.share({
-            title: "Mi figurita mundialista",
-            text: "Mira mi figurita premium generada en la version vanilla.",
-            files: [archivo],
-        });
-    } catch (_error) {
-        mostrarToast("No pudimos abrir el panel de compartir. Descarga el PNG como alternativa.");
-    }
-}
-
-function reiniciarAplicacion() {
-    limpiarTemporizadores();
-    cerrarCamara();
-    estado.pantalla = "inicio";
-    estado.pasoActual = 0;
-    estado.respuestas = {
-        nombre: "",
-        apellido: "",
-        fechaNacimiento: "",
-        altura: "",
-        peso: "",
-        equipo: "",
-    };
-    estado.fotoDataUrl = "";
-    estado.procesando = false;
-    estado.resultadoDataUrl = "";
-    sessionStorage.removeItem("figu-maker-ia-estado");
-    renderizarResumen();
-    renderizarCuestionario();
-    renderizarFoto();
-    mostrarPantalla("inicio");
-    mostrarToast("Listo, volvimos al inicio para crear otra figurita.");
-}
-
-function limpiarTemporizadores() {
-    estado.temporizadores.forEach((id) => clearInterval(id));
-    estado.temporizadores = [];
-    estado.procesando = false;
-}
-
-function mostrarToast(mensaje) {
-    referencias.toast.hidden = false;
-    referencias.toast.textContent = mensaje;
-    clearTimeout(mostrarToast.timer);
-    mostrarToast.timer = setTimeout(() => {
-        referencias.toast.hidden = true;
-    }, 2600);
+    return String(valor);
 }
 
 function formatearFecha(valor) {
@@ -1079,31 +1146,19 @@ function formatearFecha(valor) {
     }
     const fecha = new Date(valor);
     if (Number.isNaN(fecha.getTime())) {
-        return valor;
+        return String(valor);
     }
-    const dia = String(fecha.getDate()).padStart(2, "0");
-    const mes = String(fecha.getMonth() + 1).padStart(2, "0");
-    const ano = fecha.getFullYear();
-    return `${dia}-${mes}-${ano}`;
+    return fecha.toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+    });
 }
 
 function construirNombreArchivo() {
-    const nombre = (estado.respuestas.nombre || "jugador").toLowerCase().replace(/\s+/g, "-");
-    const apellido = (estado.respuestas.apellido || "figurita").toLowerCase().replace(/\s+/g, "-");
-    return `figurita-${nombre}-${apellido}.png`;
-}
-
-function convertirDataUrlEnArchivo(dataUrl, nombreArchivo) {
-    return fetch(dataUrl)
-        .then((respuesta) => respuesta.blob())
-        .then((blob) => new File([blob], nombreArchivo, { type: "image/png" }));
-}
-
-function cargarImagen(origen) {
-    return new Promise((resolver, rechazar) => {
-        const imagen = new Image();
-        imagen.onload = () => resolver(imagen);
-        imagen.onerror = () => rechazar(new Error(`No se pudo cargar ${origen}`));
-        imagen.src = origen;
-    });
+    const partes = [estado.respuestas.nombre, estado.respuestas.apellido]
+        .map((valor) => (valor || "").trim().toLowerCase().replace(/\s+/g, "-"))
+        .filter(Boolean);
+    const base = partes.length ? partes.join("_") : "mi_figurita";
+    return `${base}_panini.png`;
 }

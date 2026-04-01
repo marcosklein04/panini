@@ -239,22 +239,38 @@ class ServicioRecorteImagen:
         return mascara
 
     @staticmethod
+    def _normalizar_alpha(mascara: np.ndarray, umbral: int = 20) -> np.ndarray:
+        alpha = mascara.astype(np.uint8).copy()
+        alpha[alpha < umbral] = 0
+        alpha[alpha > 245] = 255
+        return alpha
+
+    @staticmethod
+    def _obtener_caja_alpha(mascara: np.ndarray, umbral: int = 20) -> tuple[int, int, int, int] | None:
+        indices = np.argwhere(mascara > umbral)
+        if indices.size == 0:
+            return None
+        y0, x0 = indices.min(axis=0)
+        y1, x1 = indices.max(axis=0)
+        return int(x0), int(y0), int(x1) + 1, int(y1) + 1
+
+    @staticmethod
     def _renderizar_recorte(
         imagen: Image.Image, mascara: np.ndarray
     ) -> tuple[bytes, bytes, dict]:
-        alfa = Image.fromarray(mascara, mode="L")
+        mascara_limpia = ServicioRecorteImagen._normalizar_alpha(mascara)
+        alfa = Image.fromarray(mascara_limpia, mode="L")
         imagen_rgba = imagen.copy()
         imagen_rgba.putalpha(alfa)
-        indices = np.argwhere(mascara > 10)
-        if indices.size == 0:
+        caja_alpha = ServicioRecorteImagen._obtener_caja_alpha(mascara_limpia)
+        if not caja_alpha:
             raise ErrorDeDominio(
                 "No fue posible construir una mascara de persona valida.",
                 codigo="mascara_vacia",
                 estado_http=422,
             )
 
-        y0, x0 = indices.min(axis=0)
-        y1, x1 = indices.max(axis=0)
+        x0, y0, x1, y1 = caja_alpha
         margen = 20
         caja = (
             max(x0 - margen, 0),
@@ -265,12 +281,21 @@ class ServicioRecorteImagen:
         recorte = imagen_rgba.crop(caja)
         mascara_recortada = alfa.crop(caja)
 
+        caja_local = ServicioRecorteImagen._obtener_caja_alpha(
+            np.array(mascara_recortada), umbral=20
+        )
+        if caja_local:
+            recorte = recorte.crop(caja_local)
+            mascara_recortada = mascara_recortada.crop(caja_local)
+
         buffer_recorte = io.BytesIO()
         buffer_mascara = io.BytesIO()
         recorte.save(buffer_recorte, format="PNG")
         mascara_recortada.save(buffer_mascara, format="PNG")
         return buffer_recorte.getvalue(), buffer_mascara.getvalue(), {
-            "caja": [int(valor) for valor in caja]
+            "caja": [int(valor) for valor in caja],
+            "caja_alpha_local": [int(valor) for valor in caja_local] if caja_local else None,
+            "umbral_alpha": 20,
         }
 
     @staticmethod
@@ -293,81 +318,104 @@ class ServicioRecorteImagen:
     @staticmethod
     def procesar_foto(*, foto_id, plantilla_id=None, task_id: str | None = None):
         inicio = time.perf_counter()
-        with transaction.atomic():
-            foto = FotoOriginal.objects.select_for_update().select_related("sesion").get(id=foto_id)
-            resultado = ResultadoRecorte.objects.select_for_update().get(foto_original=foto)
-            foto.estado = EstadoProceso.PROCESANDO
-            foto.mensaje_error = ""
-            foto.save(update_fields=["estado", "mensaje_error", "actualizado_en"])
-            resultado.estado = EstadoProceso.PROCESANDO
-            resultado.proveedor_ia = ProveedorIA.GEMINI
-            resultado.fecha_inicio_procesamiento = timezone.now()
-            if task_id:
-                resultado.celery_task_id = task_id
-            resultado.errores = ""
-            resultado.save(
-                update_fields=[
-                    "estado",
-                    "proveedor_ia",
-                    "fecha_inicio_procesamiento",
-                    "celery_task_id",
-                    "errores",
-                    "actualizado_en",
-                ]
+        try:
+            with transaction.atomic():
+                foto = FotoOriginal.objects.select_for_update().select_related("sesion").get(id=foto_id)
+                resultado = ResultadoRecorte.objects.select_for_update().get(foto_original=foto)
+                foto.estado = EstadoProceso.PROCESANDO
+                foto.mensaje_error = ""
+                foto.save(update_fields=["estado", "mensaje_error", "actualizado_en"])
+                resultado.estado = EstadoProceso.PROCESANDO
+                resultado.proveedor_ia = ProveedorIA.GEMINI
+                resultado.fecha_inicio_procesamiento = timezone.now()
+                if task_id:
+                    resultado.celery_task_id = task_id
+                resultado.errores = ""
+                resultado.save(
+                    update_fields=[
+                        "estado",
+                        "proveedor_ia",
+                        "fecha_inicio_procesamiento",
+                        "celery_task_id",
+                        "errores",
+                        "actualizado_en",
+                    ]
+                )
+
+            with foto.archivo.open("rb") as descriptor:
+                contenido = descriptor.read()
+
+            imagen = ServicioRecorteImagen._abrir_imagen_normalizada(contenido)
+            servicio_gemini = ServicioGemini()
+            analisis = servicio_gemini.analizar_persona(contenido, foto.mime_type)
+            segmento = ServicioRecorteImagen._seleccionar_segmento_persona(analisis["segmentos"])
+            mascara = ServicioRecorteImagen._reconstruir_mascara(
+                segmento, imagen.width, imagen.height
+            )
+            mascara_refinada = ServicioRecorteImagen._refinar_mascara(mascara)
+            recorte_bytes, mascara_bytes, metadata_render = ServicioRecorteImagen._renderizar_recorte(
+                imagen, mascara_refinada
             )
 
-        with foto.archivo.open("rb") as descriptor:
-            contenido = descriptor.read()
+            with transaction.atomic():
+                foto = FotoOriginal.objects.select_for_update().select_related("sesion").get(id=foto_id)
+                resultado = ResultadoRecorte.objects.select_for_update().get(foto_original=foto)
+                resultado.png_transparente.save(
+                    f"recorte_{foto.id}.png", ContentFile(recorte_bytes), save=False
+                )
+                resultado.archivo_mascara.save(
+                    f"mascara_{foto.id}.png", ContentFile(mascara_bytes), save=False
+                )
+                resultado.estado = EstadoProceso.COMPLETADO
+                resultado.modelo_gemini = analisis["modelo"]
+                resultado.metadatos_recorte = {
+                    "segmento_seleccionado": {
+                        "label": segmento["label"],
+                        "box_2d": segmento["box_2d"],
+                    },
+                    "metadata_render": metadata_render,
+                    "gemini": {
+                        "modelo": analisis["modelo"],
+                        "cantidad_segmentos": len(analisis["segmentos"]),
+                    },
+                    "fallback_local": bool(
+                        analisis.get("respuesta_cruda", {}).get("fallback_local", False)
+                    ),
+                    "motivo_error_gemini": analisis.get("respuesta_cruda", {}).get(
+                        "motivo_error"
+                    ),
+                }
+                resultado.tiempo_procesamiento = round(time.perf_counter() - inicio, 3)
+                resultado.fecha_fin_procesamiento = timezone.now()
+                resultado.errores = ""
+                resultado.save()
 
-        imagen = ServicioRecorteImagen._abrir_imagen_normalizada(contenido)
-        servicio_gemini = ServicioGemini()
-        analisis = servicio_gemini.analizar_persona(contenido, foto.mime_type)
-        segmento = ServicioRecorteImagen._seleccionar_segmento_persona(analisis["segmentos"])
-        mascara = ServicioRecorteImagen._reconstruir_mascara(
-            segmento, imagen.width, imagen.height
-        )
-        mascara_refinada = ServicioRecorteImagen._refinar_mascara(mascara)
-        recorte_bytes, mascara_bytes, metadata_render = ServicioRecorteImagen._renderizar_recorte(
-            imagen, mascara_refinada
-        )
+                foto.estado = EstadoProceso.COMPLETADO
+                foto.mensaje_error = ""
+                foto.save(update_fields=["estado", "mensaje_error", "actualizado_en"])
 
-        with transaction.atomic():
-            foto = FotoOriginal.objects.select_for_update().select_related("sesion").get(id=foto_id)
-            resultado = ResultadoRecorte.objects.select_for_update().get(foto_original=foto)
-            resultado.png_transparente.save(
-                f"recorte_{foto.id}.png", ContentFile(recorte_bytes), save=False
+            from figuritas.services.servicio_composicion_figurita import ServicioComposicionFigurita
+
+            ServicioSesiones.sincronizar_estado_proceso(sesion=foto.sesion)
+            ServicioComposicionFigurita.generar_automaticamente_si_corresponde(
+                resultado_recorte_id=resultado.id,
+                plantilla_id=plantilla_id,
             )
-            resultado.archivo_mascara.save(
-                f"mascara_{foto.id}.png", ContentFile(mascara_bytes), save=False
+            logger.info("Procesamiento completado", extra={"foto_id": str(foto_id)})
+            return resultado
+        except ErrorDeDominio as exc:
+            ServicioRecorteImagen.marcar_error(
+                foto_id=foto_id,
+                mensaje=exc.mensaje,
             )
-            resultado.estado = EstadoProceso.COMPLETADO
-            resultado.modelo_gemini = analisis["modelo"]
-            resultado.metadatos_recorte = {
-                "segmento_seleccionado": {
-                    "label": segmento["label"],
-                    "box_2d": segmento["box_2d"],
-                },
-                "metadata_render": metadata_render,
-                "gemini": {
-                    "modelo": analisis["modelo"],
-                    "cantidad_segmentos": len(analisis["segmentos"]),
-                },
-            }
-            resultado.tiempo_procesamiento = round(time.perf_counter() - inicio, 3)
-            resultado.fecha_fin_procesamiento = timezone.now()
-            resultado.errores = ""
-            resultado.save()
-
-            foto.estado = EstadoProceso.COMPLETADO
-            foto.mensaje_error = ""
-            foto.save(update_fields=["estado", "mensaje_error", "actualizado_en"])
-
-        from figuritas.services.servicio_composicion_figurita import ServicioComposicionFigurita
-
-        ServicioSesiones.sincronizar_estado_proceso(sesion=foto.sesion)
-        ServicioComposicionFigurita.generar_automaticamente_si_corresponde(
-            resultado_recorte_id=resultado.id,
-            plantilla_id=plantilla_id,
-        )
-        logger.info("Procesamiento completado", extra={"foto_id": str(foto_id)})
-        return resultado
+            raise
+        except Exception as exc:
+            ServicioRecorteImagen.marcar_error(
+                foto_id=foto_id,
+                mensaje="No fue posible completar el recorte de la imagen.",
+            )
+            raise ErrorDeDominio(
+                "No fue posible completar el recorte de la imagen.",
+                codigo="recorte_fallido",
+                estado_http=500,
+            ) from exc

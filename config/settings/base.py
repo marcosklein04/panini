@@ -23,7 +23,7 @@ def cargar_archivo_entorno() -> None:
         clave, valor = linea.split("=", 1)
         clave = clave.strip()
         valor = valor.strip().strip('"').strip("'")
-        os.environ.setdefault(clave, valor)
+        os.environ[clave] = valor
 
 
 def leer_entorno(nombre: str, default: str | None = None, requerido: bool = False) -> str:
@@ -66,6 +66,8 @@ cargar_archivo_entorno()
 SECRET_KEY = leer_entorno("SECRET_KEY", requerido=True)
 DEBUG = leer_bool("DEBUG", default=False)
 ALLOWED_HOSTS = leer_lista("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+if DEBUG and ALLOWED_HOSTS == ["localhost", "127.0.0.1"]:
+    ALLOWED_HOSTS = ["*"]
 CELERY_TASK_ALWAYS_EAGER = leer_bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_TASK_EAGER_PROPAGATES = leer_bool(
     "CELERY_TASK_EAGER_PROPAGATES", default=CELERY_TASK_ALWAYS_EAGER
@@ -85,7 +87,10 @@ REDIS_URL = leer_entorno(
 GEMINI_API_KEY = leer_entorno("GEMINI_API_KEY", default="")
 GEMINI_MODEL = leer_entorno("GEMINI_MODEL", default="gemini-2.5-flash")
 GEMINI_MODO_SIMULADO = leer_bool("GEMINI_MODO_SIMULADO", default=DEBUG)
+GEMINI_FALLBACK_LOCAL = leer_bool("GEMINI_FALLBACK_LOCAL", default=DEBUG)
+GEMINI_TIMEOUT_SEGUNDOS = leer_int("GEMINI_TIMEOUT_SEGUNDOS", default=20)
 CORS_ALLOWED_ORIGINS = leer_lista("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOW_ALL_ORIGINS = leer_bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
 MEDIA_ROOT = Path(leer_entorno("MEDIA_ROOT", default=str(BASE_DIR / "media")))
 MEDIA_URL = leer_entorno("MEDIA_URL", default="/media/")
 JWT_ACCESS_MINUTOS = leer_int("JWT_ACCESS_MINUTOS", default=60)

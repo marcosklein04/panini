@@ -1,5 +1,9 @@
+from pathlib import Path
+
+from django.core.files.base import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.conf import settings
 
 from catalogos.models import Equipo
 from figuritas.models import PlantillaFigurita
@@ -133,6 +137,21 @@ class Command(BaseCommand):
                 },
             },
         )
+
+        ruta_asset = (
+            Path(settings.BASE_DIR)
+            / "figu-maker-ia-vanilla"
+            / "assets"
+            / "img"
+            / "plantilla-figurita.png"
+        )
+        if ruta_asset.exists() and not plantilla.archivo_base:
+            with ruta_asset.open("rb") as descriptor:
+                plantilla.archivo_base.save(
+                    "clasica-azul.png",
+                    File(descriptor),
+                    save=True,
+                )
 
         self.stdout.write(
             self.style.SUCCESS(

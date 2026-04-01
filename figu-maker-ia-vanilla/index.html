@@ -8,13 +8,16 @@
         name="description"
         content="Version vanilla de Figu Maker IA: cuestionario, camara, procesamiento y figurita final."
     >
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
         href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Orbitron:wght@500;700;800;900&display=swap"
         rel="stylesheet"
     >
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260401d">
 </head>
 <body>
     <div class="escena-fondo" aria-hidden="true">
@@ -53,7 +56,8 @@
                         </h1>
                         <p class="hero-bajada">
                             Recreamos el frontend de Lovable en codigo puro: mismo flow, misma energia,
-                            misma vibra de estadio, con cuestionario, foto, IA simulada y resultado final.
+                            misma vibra de estadio, con cuestionario, foto, recorte asistido por Gemini
+                            y una figurita final compuesta sobre la plantilla real.
                         </p>
 
                         <div class="hero-acciones">
@@ -316,8 +320,8 @@
                             <span class="eyebrow">PIPELINE CREATIVO</span>
                             <h2 id="titulo-procesando">Preparando tu figurita</h2>
                             <p id="texto-procesando">
-                                Simulamos el mismo flujo visual del builder: subida, analisis,
-                                composicion y acabado final.
+                                El backend sube la foto, Gemini guia el recorte de la persona
+                                y luego compone la salida final sobre la plantilla integrada.
                             </p>
                         </div>
                     </section>
@@ -357,13 +361,15 @@
                             <span class="eyebrow">RESULTADO FINAL</span>
                             <h2>Tu figurita ya esta lista</h2>
                             <p>
-                                Compuesta en canvas con tus datos, tu foto y la plantilla integrada como
-                                referencia visual dentro de la composicion.
+                                La imagen final viene del backend: sesion anonima, recorte asistido por Gemini
+                                y composicion sobre la plantilla integrada.
                             </p>
                         </div>
 
                         <div class="resultado-canvas-wrap">
-                            <canvas id="canvas-figurita" width="900" height="1200"></canvas>
+                            <figure class="resultado-figura" id="resultado-figura" data-vacio="true" data-placeholder="La figurita final aparecera aqui">
+                                <img id="imagen-figurita-final" alt="Figurita final generada por el backend">
+                            </figure>
                         </div>
                     </section>
 
@@ -417,6 +423,6 @@
         </div>
     </noscript>
 
-    <script src="script.js" defer></script>
+    <script src="script.js?v=20260401d" defer></script>
 </body>
 </html>
