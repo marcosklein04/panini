@@ -1,3 +1,5 @@
+import threading
+
 from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,6 +16,18 @@ from imagenes.models import ResultadoRecorte
 from imagenes.services.servicio_recorte_imagen import ServicioRecorteImagen
 from imagenes.tasks import tarea_procesar_imagen
 from sesiones.services.servicio_sesiones import ServicioSesiones
+
+
+def _procesar_imagen_en_segundo_plano(*, foto_id: str, plantilla_id: str | None = None) -> None:
+    try:
+        ServicioRecorteImagen.procesar_foto(
+            foto_id=foto_id,
+            plantilla_id=plantilla_id,
+            task_id=f"local-{foto_id}",
+        )
+    except Exception:
+        # El servicio ya persiste el error en base de datos.
+        return
 
 
 class VistaSubirImagenAPIView(APIView):
@@ -57,15 +71,25 @@ class VistaProcesarImagenAPIView(APIView):
             )
 
         if settings.CELERY_TASK_ALWAYS_EAGER:
-            resultado = ServicioRecorteImagen.procesar_foto(
-                foto_id=str(foto.id),
-                plantilla_id=str(serializer.validated_data["plantilla_id"])
+            plantilla_id = (
+                str(serializer.validated_data["plantilla_id"])
                 if serializer.validated_data.get("plantilla_id")
-                else None,
+                else None
             )
+            resultado = ServicioRecorteImagen.registrar_tarea(
+                resultado=resultado,
+                task_id=f"local-{foto.id}",
+            )
+            hilo = threading.Thread(
+                target=_procesar_imagen_en_segundo_plano,
+                kwargs={"foto_id": str(foto.id), "plantilla_id": plantilla_id},
+                daemon=True,
+                name=f"procesamiento-foto-{foto.id}",
+            )
+            hilo.start()
             return Response(
                 {
-                    "mensaje": "Procesamiento de imagen completado correctamente.",
+                    "mensaje": "Procesamiento de imagen iniciado correctamente.",
                     "resultado": ResultadoRecorteSerializer(resultado).data,
                 },
                 status=202,

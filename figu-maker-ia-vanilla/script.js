@@ -590,9 +590,16 @@ async function confirmarFoto() {
     if (!archivoActual) {
         archivoActual = dataUrlAArchivo(estado.fotoDataUrl, "foto.jpg", "image/jpeg");
     }
+    estado.fotoId = "";
+    estado.resultadoId = "";
+    estado.recorteUrl = "";
+    estado.figuritaId = "";
+    estado.figuritaUrl = "";
+    persistirEstado();
     mostrarPantalla("procesando");
     renderizarProcesamiento();
     await subirFotoBackend();
+    actualizarProgresoProcesamiento(32, 1, PASOS_PROCESAMIENTO[1].titulo, "La foto ya se subio. Iniciando el analisis en segundo plano.");
     await procesarFotoBackend();
     await esperarRecorteBackend();
     await generarFiguritaBackend();
@@ -617,7 +624,7 @@ function renderizarProcesamiento() {
         referencias.listaProcesos.appendChild(item);
     });
     actualizarProgresoProcesamiento(0, 0, PASOS_PROCESAMIENTO[0].titulo, PASOS_PROCESAMIENTO[0].detalle);
-    referencias.previewProcesandoFoto.src = estado.fotoDataUrl || "assets/img/plantilla-figurita.png";
+    referencias.previewProcesandoFoto.src = estado.fotoDataUrl || "assets/img/panini-img.png";
 }
 
 function actualizarProgresoProcesamiento(porcentaje, indiceActivo, titulo, detalle) {
@@ -757,16 +764,16 @@ async function subirFotoBackend() {
     });
     estado.fotoId = datos.foto.id;
     persistirEstado();
-    actualizarProgresoProcesamiento(24, 1, PASOS_PROCESAMIENTO[1].titulo, PASOS_PROCESAMIENTO[1].detalle);
+    actualizarProgresoProcesamiento(26, 1, PASOS_PROCESAMIENTO[1].titulo, "Foto subida. Preparando el recorte con Gemini.");
 }
 
 async function procesarFotoBackend() {
-    actualizarProgresoProcesamiento(30, 1, PASOS_PROCESAMIENTO[1].titulo, PASOS_PROCESAMIENTO[1].detalle);
+    actualizarProgresoProcesamiento(34, 1, PASOS_PROCESAMIENTO[1].titulo, "Gemini ya recibio la foto y esta preparando la silueta.");
     exigirTokenPublico();
     const datos = await solicitar(`/api/imagenes/${estado.fotoId}/procesar/`, {
         method: "POST",
         body: { token_publico: estado.tokenPublico },
-        timeoutMs: 180000,
+        timeoutMs: 20000,
     });
     estado.resultadoId = datos.resultado.id;
     persistirEstado();

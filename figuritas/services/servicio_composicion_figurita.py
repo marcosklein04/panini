@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 class ServicioComposicionFigurita:
     CONFIG_DEFAULT = {
-        "ancho": 900,
-        "alto": 1200,
+        "ancho": 768,
+        "alto": 1152,
         "color_fondo_inicio": "#0F6CBD",
         "color_fondo_fin": "#7BE0FF",
         "color_marco": "#F7D35B",
@@ -123,7 +123,9 @@ class ServicioComposicionFigurita:
     @staticmethod
     def _ruta_plantilla_demo() -> Path | None:
         rutas = [
+            settings.BASE_DIR / "figu-maker-ia-vanilla" / "assets" / "img" / "panini-img.png",
             settings.BASE_DIR / "figu-maker-ia-vanilla" / "assets" / "img" / "plantilla-figurita.png",
+            settings.BASE_DIR / "core" / "static" / "core" / "panini-img.png",
             settings.BASE_DIR / "core" / "static" / "core" / "plantilla-figurita.png",
         ]
         for ruta in rutas:
@@ -137,15 +139,15 @@ class ServicioComposicionFigurita:
     ) -> tuple[Image.Image, bool]:
         ancho = configuracion["ancho"]
         alto = configuracion["alto"]
-        if plantilla.archivo_base:
-            with plantilla.archivo_base.open("rb") as descriptor:
-                fondo = Image.open(descriptor).convert("RGBA")
-                return fondo.resize((ancho, alto)), True
-
         ruta_demo = ServicioComposicionFigurita._ruta_plantilla_demo()
         if ruta_demo:
             fondo = Image.open(ruta_demo).convert("RGBA")
             return fondo.resize((ancho, alto)), True
+
+        if plantilla.archivo_base:
+            with plantilla.archivo_base.open("rb") as descriptor:
+                fondo = Image.open(descriptor).convert("RGBA")
+                return fondo.resize((ancho, alto)), True
 
         color_inicio = configuracion["color_fondo_inicio"]
         color_fin = configuracion["color_fondo_fin"]
@@ -298,6 +300,50 @@ class ServicioComposicionFigurita:
         return f"{metros:.2f}".replace(".", ",") + "m"
 
     @staticmethod
+    def _limpiar_textos_base_plantilla(fondo: Image.Image, cajas: list[tuple[int, int, int, int]]) -> Image.Image:
+        fondo_limpio = fondo.copy()
+        matriz = np.array(fondo_limpio.convert("RGBA"))
+
+        for x0, y0, x1, y1 in cajas:
+            if x1 <= x0 or y1 <= y0:
+                continue
+            region_rgba = matriz[y0:y1, x0:x1].copy()
+            region_rgb = cv2.cvtColor(region_rgba, cv2.COLOR_RGBA2RGB)
+            hsv = cv2.cvtColor(region_rgb, cv2.COLOR_RGB2HSV)
+
+            mascara_blanco = cv2.inRange(hsv, (0, 0, 170), (180, 85, 255))
+            mascara_amarillo = cv2.inRange(hsv, (12, 80, 120), (42, 255, 255))
+            mascara_texto = cv2.bitwise_or(mascara_blanco, mascara_amarillo)
+            mascara_texto = cv2.dilate(mascara_texto, np.ones((3, 3), np.uint8), iterations=1)
+
+            if np.count_nonzero(mascara_texto) == 0:
+                continue
+
+            region_bgr = cv2.cvtColor(region_rgb, cv2.COLOR_RGB2BGR)
+            region_limpia = cv2.inpaint(region_bgr, mascara_texto, 5, cv2.INPAINT_TELEA)
+            region_limpia = cv2.cvtColor(region_limpia, cv2.COLOR_BGR2RGBA)
+            region_limpia[:, :, 3] = region_rgba[:, :, 3]
+            matriz[y0:y1, x0:x1] = region_limpia
+
+        return Image.fromarray(matriz, mode="RGBA")
+
+    @staticmethod
+    def _dibujar_texto_con_sombra(
+        dibujo: ImageDraw.ImageDraw,
+        posicion: tuple[int, int],
+        texto: str,
+        *,
+        fuente,
+        color: str = "#FFFFFF",
+        color_sombra: tuple[int, int, int, int] = (0, 0, 0, 115),
+        desplazamiento: tuple[int, int] = (0, 3),
+    ):
+        x, y = posicion
+        dx, dy = desplazamiento
+        dibujo.text((x + dx, y + dy), texto, font=fuente, fill=color_sombra)
+        dibujo.text((x, y), texto, font=fuente, fill=color)
+
+    @staticmethod
     def _componer_sobre_plantilla_visual(*, fondo, persona, config, datos_sticker):
         ancho = config["ancho"]
         alto = config["alto"]
@@ -338,54 +384,27 @@ class ServicioComposicionFigurita:
         fuente_equipo = ServicioComposicionFigurita._cargar_fuente(31, negrita=True)
         fuente_pais = ServicioComposicionFigurita._cargar_fuente(26, negrita=False)
 
-        color_barra_inicio = "#0C566A"
-        color_barra_fin = "#1594A7"
-
-        _dibujar_rectangulo_redondeado_con_gradiente(
-            fondo,
-            (
-                barra_nombre[0] - 10,
-                barra_nombre[1] - 8,
-                min(barra_nombre[2] + 22, ancho - 28),
-                min(barra_nombre[3] + 14, alto - 20),
-            ),
-            radio=28,
-            color_inicio=color_barra_inicio,
-            color_fin=color_barra_fin,
-        )
-        _dibujar_rectangulo_redondeado_con_gradiente(
-            fondo,
-            (
-                barra_equipo[0] - 8,
-                barra_equipo[1] - 10,
-                min(barra_equipo[2] + 128, ancho - 194),
-                min(barra_equipo[3] + 18, alto - 56),
-            ),
-            radio=22,
-            color_inicio=color_barra_inicio,
-            color_fin=color_barra_fin,
-        )
-
         nombre_x = barra_nombre[0] + 34
-        nombre_y = barra_nombre[1] + 14
-        apellido_x = nombre_x
-        dibujo.text(
+        nombre_y = barra_nombre[1] + 12
+        nombre_jugador = (datos_sticker.nombre or "Jugador").upper()
+        apellido_jugador = (datos_sticker.apellido or "Premium").upper()
+        ServicioComposicionFigurita._dibujar_texto_con_sombra(
+            dibujo,
             (nombre_x, nombre_y),
-            (datos_sticker.nombre or "Jugador").upper(),
-            font=fuente_nombre,
-            fill="#FFFFFF",
+            nombre_jugador,
+            fuente=fuente_nombre,
         )
-        ancho_nombre = dibujo.textbbox(
+        caja_nombre = dibujo.textbbox(
             (nombre_x, nombre_y),
-            (datos_sticker.nombre or "Jugador").upper(),
+            nombre_jugador,
             font=fuente_nombre,
-        )[2]
-        apellido_x = ancho_nombre + 18
-        dibujo.text(
+        )
+        apellido_x = caja_nombre[2] + 14
+        ServicioComposicionFigurita._dibujar_texto_con_sombra(
+            dibujo,
             (apellido_x, nombre_y),
-            (datos_sticker.apellido or "Premium").upper(),
-            font=fuente_apellido,
-            fill="#FFFFFF",
+            apellido_jugador,
+            fuente=fuente_apellido,
         )
 
         linea_secundaria = " | ".join(
@@ -395,23 +414,26 @@ class ServicioComposicionFigurita:
                 f"{datos_sticker.peso_kg} kg",
             ]
         )
-        dibujo.text(
+        ServicioComposicionFigurita._dibujar_texto_con_sombra(
+            dibujo,
             (nombre_x, barra_nombre[1] + 64),
             linea_secundaria,
-            font=fuente_info,
-            fill="#FFFFFF",
+            fuente=fuente_info,
         )
-        dibujo.text(
+        ServicioComposicionFigurita._dibujar_texto_con_sombra(
+            dibujo,
             (barra_equipo[0] + 26, barra_equipo[1] + 8),
             (datos_sticker.equipo or "Equipo").upper(),
-            font=fuente_equipo,
-            fill="#FFFFFF",
+            fuente=fuente_equipo,
         )
-        dibujo.text(
-            (min(barra_equipo[2] + 40, ancho - 250), barra_equipo[1] + 10),
-            f"({(datos_sticker.nacionalidad or 'ARG').upper()})",
-            font=fuente_pais,
-            fill="#FFFFFF",
+        pais = f"({(datos_sticker.nacionalidad or 'ARG').upper()})"
+        caja_pais = dibujo.textbbox((0, 0), pais, font=fuente_pais)
+        pais_x = barra_equipo[2] - (caja_pais[2] - caja_pais[0]) - 24
+        ServicioComposicionFigurita._dibujar_texto_con_sombra(
+            dibujo,
+            (pais_x, barra_equipo[1] + 10),
+            pais,
+            fuente=fuente_pais,
         )
 
         return fondo

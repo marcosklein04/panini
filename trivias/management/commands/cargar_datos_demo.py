@@ -121,8 +121,8 @@ class Command(BaseCommand):
                 "activa": True,
                 "predeterminada": True,
                 "configuracion_visual": {
-                    "ancho": 900,
-                    "alto": 1200,
+                    "ancho": 768,
+                    "alto": 1152,
                     "color_fondo_inicio": "#0A4F8A",
                     "color_fondo_fin": "#4FC3FF",
                     "color_marco": "#F8D66D",
@@ -143,12 +143,12 @@ class Command(BaseCommand):
             / "figu-maker-ia-vanilla"
             / "assets"
             / "img"
-            / "plantilla-figurita.png"
+            / "panini-img.png"
         )
-        if ruta_asset.exists() and not plantilla.archivo_base:
+        if ruta_asset.exists():
             with ruta_asset.open("rb") as descriptor:
                 plantilla.archivo_base.save(
-                    "clasica-azul.png",
+                    "clasica-azul-panini.png",
                     File(descriptor),
                     save=True,
                 )
