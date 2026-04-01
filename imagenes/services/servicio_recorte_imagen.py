@@ -239,11 +239,254 @@ class ServicioRecorteImagen:
         return mascara
 
     @staticmethod
+    def _detectar_rostro_principal(imagen_bgr: np.ndarray) -> tuple[int, int, int, int] | None:
+        gris = cv2.cvtColor(imagen_bgr, cv2.COLOR_BGR2GRAY)
+        clasificador = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        if clasificador.empty():
+            return None
+
+        alto, ancho = gris.shape[:2]
+        min_lado = max(80, min(ancho, alto) // 12)
+        detecciones = clasificador.detectMultiScale(
+            gris,
+            scaleFactor=1.08,
+            minNeighbors=5,
+            minSize=(min_lado, min_lado),
+        )
+        if len(detecciones) == 0:
+            return None
+
+        centro_imagen_x = ancho / 2
+
+        def puntaje(rostro):
+            x, y, w, h = [int(valor) for valor in rostro]
+            area = w * h
+            centro_rostro_x = x + (w / 2)
+            penalizacion_centro = abs(centro_rostro_x - centro_imagen_x) * 0.35
+            penalizacion_altura = y * 0.08
+            return area - penalizacion_centro - penalizacion_altura
+
+        mejor = max(detecciones, key=puntaje)
+        return tuple(int(valor) for valor in mejor)
+
+    @staticmethod
+    def _construir_silueta_busto_desde_rostro(
+        shape: tuple[int, int], rostro: tuple[int, int, int, int]
+    ) -> np.ndarray:
+        alto, ancho = shape
+        silueta = np.zeros((alto, ancho), dtype=np.uint8)
+        x, y, w, h = rostro
+        centro_x = int(x + (w / 2))
+
+        centro_cabeza = (centro_x, int(y + (h * 0.58)))
+        ejes_cabeza = (
+            max(int(w * 0.98), 18),
+            max(int(h * 1.04), 24),
+        )
+        cv2.ellipse(silueta, centro_cabeza, ejes_cabeza, 0, 0, 360, 255, -1)
+
+        cuello_x0 = max(int(centro_x - (w * 0.45)), 0)
+        cuello_x1 = min(int(centro_x + (w * 0.45)), ancho)
+        cuello_y0 = max(int(y + (h * 0.92)), 0)
+        cuello_y1 = min(int(y + (h * 1.85)), alto)
+        silueta[cuello_y0:cuello_y1, cuello_x0:cuello_x1] = 255
+
+        hombros_centro_y = min(int(y + (h * 2.32)), alto - 1)
+        hombros_ancho = max(int(w * 1.55), 34)
+        hombros_alto = max(int(h * 0.96), 28)
+        cv2.ellipse(
+            silueta,
+            (centro_x, hombros_centro_y),
+            (hombros_ancho, hombros_alto),
+            0,
+            0,
+            360,
+            255,
+            -1,
+        )
+
+        torso_x0 = max(int(centro_x - (w * 1.16)), 0)
+        torso_x1 = min(int(centro_x + (w * 1.16)), ancho)
+        torso_y0 = max(int(y + (h * 1.42)), 0)
+        torso_y1 = min(int(y + (h * 3.2)), alto)
+        silueta[torso_y0:torso_y1, torso_x0:torso_x1] = 255
+
+        silueta = cv2.GaussianBlur(silueta, (0, 0), sigmaX=2.0)
+        return silueta
+
+    @staticmethod
+    def _muestrear_fondo_desde_bordes(imagen_bgr: np.ndarray) -> tuple[np.ndarray, float, float]:
+        alto, ancho = imagen_bgr.shape[:2]
+        margen = max(min(ancho, alto) // 20, 18)
+        muestras = [
+            imagen_bgr[:margen, :, :],
+            imagen_bgr[:, :margen, :],
+            imagen_bgr[:, max(ancho - margen, 0) :, :],
+            imagen_bgr[max(alto - margen, 0) :, : max(margen * 2, 1), :],
+            imagen_bgr[max(alto - margen, 0) :, max(ancho - (margen * 2), 0) :, :],
+        ]
+        muestras = [muestra.reshape(-1, 3) for muestra in muestras if muestra.size]
+        if not muestras:
+            return np.array([0.0, 0.0, 0.0], dtype=np.float32), 18.0, 38.0
+
+        muestras_np = np.concatenate(muestras, axis=0)
+        muestras_lab = cv2.cvtColor(
+            muestras_np.reshape(-1, 1, 3), cv2.COLOR_BGR2LAB
+        ).reshape(-1, 3)
+        color_fondo = np.median(muestras_lab, axis=0).astype(np.float32)
+        distancias = np.linalg.norm(muestras_lab - color_fondo, axis=1)
+        umbral_bajo = max(float(np.percentile(distancias, 92)) + 5.0, 16.0)
+        umbral_alto = max(umbral_bajo + 18.0, 34.0)
+        return color_fondo, umbral_bajo, umbral_alto
+
+    @staticmethod
+    def _seleccionar_componente_rostro(
+        mascara: np.ndarray,
+        rostro: tuple[int, int, int, int],
+    ) -> np.ndarray:
+        num_etiquetas, etiquetas, estadisticas, _ = cv2.connectedComponentsWithStats(mascara)
+        if num_etiquetas <= 1:
+            return mascara
+
+        x, y, w, h = rostro
+        x0 = max(int(x - (w * 0.2)), 0)
+        y0 = max(int(y - (h * 0.2)), 0)
+        x1 = min(int(x + w + (w * 0.2)), mascara.shape[1])
+        y1 = min(int(y + h + (h * 0.2)), mascara.shape[0])
+
+        mejor_etiqueta = None
+        mejor_area = 0
+        for etiqueta in range(1, num_etiquetas):
+            area = int(estadisticas[etiqueta, cv2.CC_STAT_AREA])
+            if area <= mejor_area:
+                continue
+            mascara_etiqueta = etiquetas == etiqueta
+            if np.any(mascara_etiqueta[y0:y1, x0:x1]):
+                mejor_etiqueta = etiqueta
+                mejor_area = area
+
+        if mejor_etiqueta is None:
+            mejor_etiqueta = int(1 + np.argmax(estadisticas[1:, cv2.CC_STAT_AREA]))
+
+        resultado = np.zeros_like(mascara)
+        resultado[etiquetas == mejor_etiqueta] = 255
+        return resultado
+
+    @staticmethod
+    def _acotar_mascara_a_busto(imagen: Image.Image, mascara: np.ndarray) -> np.ndarray:
+        imagen_bgr = cv2.cvtColor(np.array(imagen.convert("RGB")), cv2.COLOR_RGB2BGR)
+        rostro = ServicioRecorteImagen._detectar_rostro_principal(imagen_bgr)
+        if rostro is None:
+            return mascara
+
+        x, y, w, h = rostro
+        silueta_busto = ServicioRecorteImagen._construir_silueta_busto_desde_rostro(
+            mascara.shape,
+            rostro,
+        )
+        color_fondo, umbral_bajo, umbral_alto = (
+            ServicioRecorteImagen._muestrear_fondo_desde_bordes(imagen_bgr)
+        )
+        imagen_lab = cv2.cvtColor(imagen_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+        distancia = np.linalg.norm(imagen_lab - color_fondo, axis=2)
+        color_fondo_probable = np.clip(
+            (distancia - umbral_bajo) / max(umbral_alto - umbral_bajo, 1.0),
+            0.0,
+            1.0,
+        )
+        color_fondo_probable = (color_fondo_probable * 255).astype(np.uint8)
+
+        alto, ancho = mascara.shape
+        mascara_gc = np.full((alto, ancho), cv2.GC_PR_BGD, dtype=np.uint8)
+        margen_borde = max(min(ancho, alto) // 32, 14)
+        mascara_gc[:margen_borde, :] = cv2.GC_BGD
+        mascara_gc[:, :margen_borde] = cv2.GC_BGD
+        mascara_gc[:, max(ancho - margen_borde, 0) :] = cv2.GC_BGD
+        mascara_gc[max(alto - margen_borde, 0) :, :] = cv2.GC_BGD
+
+        mascara_gc[silueta_busto <= 8] = cv2.GC_BGD
+        mascara_gc[mascara >= 72] = cv2.GC_PR_FGD
+        mascara_gc[color_fondo_probable >= 168] = cv2.GC_PR_FGD
+        mascara_gc[(color_fondo_probable <= 28) & (silueta_busto <= 32)] = cv2.GC_BGD
+
+        rostro_y0 = max(int(y - (h * 0.28)), 0)
+        rostro_y1 = min(int(y + h + (h * 0.18)), alto)
+        rostro_x0 = max(int(x - (w * 0.18)), 0)
+        rostro_x1 = min(int(x + w + (w * 0.18)), ancho)
+        mascara_gc[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = cv2.GC_FGD
+
+        torso_y0 = min(int(y + (h * 0.95)), alto)
+        torso_y1 = min(int(y + (h * 2.85)), alto)
+        torso_x0 = max(int((x + (w / 2)) - (w * 0.92)), 0)
+        torso_x1 = min(int((x + (w / 2)) + (w * 0.92)), ancho)
+        if torso_y1 > torso_y0 and torso_x1 > torso_x0:
+            region_torso = mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1]
+            region_torso[:] = np.maximum(region_torso, cv2.GC_PR_FGD)
+
+        fondo_modelo = np.zeros((1, 65), np.float64)
+        primer_plano_modelo = np.zeros((1, 65), np.float64)
+        try:
+            cv2.grabCut(
+                imagen_bgr,
+                mascara_gc,
+                None,
+                fondo_modelo,
+                primer_plano_modelo,
+                3,
+                cv2.GC_INIT_WITH_MASK,
+            )
+            refinada = np.where(
+                (mascara_gc == cv2.GC_FGD) | (mascara_gc == cv2.GC_PR_FGD),
+                255,
+                0,
+            ).astype(np.uint8)
+        except cv2.error:
+            refinada = cv2.min(mascara.astype(np.uint8), color_fondo_probable)
+
+        limpieza_color = np.where(color_fondo_probable >= 52, 255, 0).astype(np.uint8)
+        limpieza_color[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = 255
+        if torso_y1 > torso_y0 and torso_x1 > torso_x0:
+            limpieza_color[torso_y0:torso_y1, torso_x0:torso_x1] = 255
+
+        refinada = cv2.bitwise_and(refinada, silueta_busto)
+        refinada = cv2.bitwise_and(refinada, limpieza_color)
+        refinada = ServicioRecorteImagen._seleccionar_componente_rostro(refinada, rostro)
+        refinada = cv2.morphologyEx(
+            refinada,
+            cv2.MORPH_CLOSE,
+            np.ones((5, 5), np.uint8),
+            iterations=2,
+        )
+        refinada = cv2.morphologyEx(
+            refinada,
+            cv2.MORPH_OPEN,
+            np.ones((3, 3), np.uint8),
+            iterations=1,
+        )
+        refinada = cv2.GaussianBlur(refinada, (0, 0), sigmaX=1.5)
+        return refinada
+
+    @staticmethod
     def _normalizar_alpha(mascara: np.ndarray, umbral: int = 20) -> np.ndarray:
         alpha = mascara.astype(np.uint8).copy()
         alpha[alpha < umbral] = 0
         alpha[alpha > 245] = 255
         return alpha
+
+    @staticmethod
+    def _seleccionar_mayor_componente(mascara: np.ndarray, umbral: int = 20) -> np.ndarray:
+        mascara_binaria = np.where(mascara > umbral, 255, 0).astype(np.uint8)
+        num_etiquetas, etiquetas, estadisticas, _ = cv2.connectedComponentsWithStats(
+            mascara_binaria
+        )
+        if num_etiquetas <= 1:
+            return mascara_binaria
+        etiqueta_principal = int(1 + np.argmax(estadisticas[1:, cv2.CC_STAT_AREA]))
+        resultado = np.zeros_like(mascara_binaria)
+        resultado[etiquetas == etiqueta_principal] = 255
+        return resultado
 
     @staticmethod
     def _obtener_caja_alpha(mascara: np.ndarray, umbral: int = 20) -> tuple[int, int, int, int] | None:
@@ -259,6 +502,11 @@ class ServicioRecorteImagen:
         imagen: Image.Image, mascara: np.ndarray
     ) -> tuple[bytes, bytes, dict]:
         mascara_limpia = ServicioRecorteImagen._normalizar_alpha(mascara)
+        mascara_principal = ServicioRecorteImagen._seleccionar_mayor_componente(
+            mascara_limpia,
+            umbral=20,
+        )
+        mascara_limpia = cv2.bitwise_and(mascara_limpia, mascara_principal)
         alfa = Image.fromarray(mascara_limpia, mode="L")
         imagen_rgba = imagen.copy()
         imagen_rgba.putalpha(alfa)
@@ -353,6 +601,10 @@ class ServicioRecorteImagen:
                 segmento, imagen.width, imagen.height
             )
             mascara_refinada = ServicioRecorteImagen._refinar_mascara(mascara)
+            mascara_refinada = ServicioRecorteImagen._acotar_mascara_a_busto(
+                imagen,
+                mascara_refinada,
+            )
             recorte_bytes, mascara_bytes, metadata_render = ServicioRecorteImagen._renderizar_recorte(
                 imagen, mascara_refinada
             )

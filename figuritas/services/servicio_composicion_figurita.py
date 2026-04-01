@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from core.enums import EstadoProceso
 from core.excepciones import ErrorDeDominio
@@ -33,13 +33,13 @@ class ServicioComposicionFigurita:
         "titulo_superior": "EDICION PERSONALIZADA",
         "subtitulo": "STICKER FAN CARD",
         "badge": "TITULAR",
-        "escala_persona": 0.72,
+        "escala_persona": 0.9,
         "desplazamiento_x": 0,
-        "desplazamiento_y": 40,
-        "proporcion_busto": 0.68,
-        "margen_horizontal_busto": 0.14,
+        "desplazamiento_y": 10,
+        "proporcion_busto": 0.9,
+        "margen_horizontal_busto": 0.08,
         "margen_superior_busto": 0.05,
-        "margen_inferior_busto": 0.05,
+        "margen_inferior_busto": 0.08,
         "umbral_alpha_persona": 20,
     }
 
@@ -204,6 +204,41 @@ class ServicioComposicionFigurita:
         return persona
 
     @staticmethod
+    def _crear_mascara_silueta_plantilla(size: tuple[int, int]) -> Image.Image:
+        ancho, alto = size
+
+        def sx(valor_x: int, valor_y: int) -> tuple[int, int]:
+            return (
+                int(valor_x * ancho / 1024),
+                int(valor_y * alto / 1536),
+            )
+
+        mascara = Image.new("L", (ancho, alto), 0)
+        dibujo = ImageDraw.Draw(mascara)
+
+        cabeza = [sx(215, 240), sx(421, 520)]
+        cuello = [sx(255, 430), sx(380, 690)]
+        cuerpo = [sx(48, 650), sx(621, 1250)]
+        hombro_derecho = [sx(445, 620), sx(686, 900)]
+        hombro_izquierdo = [sx(-60, 720), sx(170, 980)]
+
+        dibujo.ellipse(cabeza, fill=255)
+        dibujo.rectangle(cuello, fill=255)
+        dibujo.rounded_rectangle(cuerpo, radius=int(82 * ancho / 1024), fill=255)
+        dibujo.ellipse(hombro_derecho, fill=255)
+        dibujo.ellipse(hombro_izquierdo, fill=255)
+        dibujo.polygon(
+            [
+                sx(0, 805),
+                sx(140, 690),
+                sx(258, 660),
+                sx(48, 980),
+            ],
+            fill=255,
+        )
+        return mascara.filter(ImageFilter.GaussianBlur(radius=max(1, int(ancho / 384))))
+
+    @staticmethod
     def _extraer_layout_plantilla_visual(fondo: Image.Image) -> dict:
         ancho, alto = fondo.size
 
@@ -348,20 +383,21 @@ class ServicioComposicionFigurita:
         ancho = config["ancho"]
         alto = config["alto"]
         layout = ServicioComposicionFigurita._extraer_layout_plantilla_visual(fondo)
-        zona_persona = layout["zona_persona"]
         barra_nombre = layout["barra_nombre"]
         barra_equipo = layout["barra_equipo"]
+        mascara_silueta = ServicioComposicionFigurita._crear_mascara_silueta_plantilla(
+            fondo.size
+        )
+        caja_silueta = mascara_silueta.getbbox() or layout["zona_persona"]
+        zona_persona = caja_silueta
 
         sombra = persona.copy()
         alfa_sombra = sombra.getchannel("A").filter(ImageFilter.GaussianBlur(radius=20))
         sombra.putalpha(alfa_sombra)
 
-        escala = float(config.get("escala_persona", 0.78))
-        max_alto_persona = min(
-            int((zona_persona[3] - zona_persona[1]) * 0.98),
-            int(alto * escala),
-        )
-        max_ancho_persona = int((zona_persona[2] - zona_persona[0]) * 0.98)
+        escala = float(config.get("escala_persona", 0.9))
+        max_alto_persona = int((zona_persona[3] - zona_persona[1]) * 1.08)
+        max_ancho_persona = int((zona_persona[2] - zona_persona[0]) * 1.12)
         proporcion = min(
             max_alto_persona / max(persona.height, 1),
             max_ancho_persona / max(persona.width, 1),
@@ -370,12 +406,31 @@ class ServicioComposicionFigurita:
         persona = persona.resize(nuevo_tamano, Image.Resampling.LANCZOS)
         sombra = sombra.resize(nuevo_tamano, Image.Resampling.LANCZOS)
 
-        centro_x = layout["centro_persona_x"] + int(config.get("desplazamiento_x", 0))
-        base_y = layout["base_persona_y"] + int(config.get("desplazamiento_y", 0))
+        centro_x = int((zona_persona[0] + zona_persona[2]) / 2) + int(
+            config.get("desplazamiento_x", 0)
+        )
+        base_y = zona_persona[3] + int(config.get("desplazamiento_y", 0))
         posicion_persona = (centro_x - persona.width // 2, base_y - persona.height)
-        posicion_sombra = (posicion_persona[0] + 18, posicion_persona[1] + 24)
-        fondo.alpha_composite(sombra, posicion_sombra)
-        fondo.alpha_composite(persona, posicion_persona)
+        posicion_sombra = (posicion_persona[0] + 14, posicion_persona[1] + 20)
+
+        capa_sombra = Image.new("RGBA", fondo.size, (0, 0, 0, 0))
+        capa_persona = Image.new("RGBA", fondo.size, (0, 0, 0, 0))
+        capa_sombra.alpha_composite(sombra, posicion_sombra)
+        capa_persona.alpha_composite(persona, posicion_persona)
+
+        alpha_sombra = ImageChops.multiply(
+            capa_sombra.getchannel("A"),
+            mascara_silueta,
+        )
+        alpha_persona = ImageChops.multiply(
+            capa_persona.getchannel("A"),
+            mascara_silueta,
+        )
+        capa_sombra.putalpha(alpha_sombra)
+        capa_persona.putalpha(alpha_persona)
+
+        fondo.alpha_composite(capa_sombra)
+        fondo.alpha_composite(capa_persona)
 
         dibujo = ImageDraw.Draw(fondo)
         fuente_nombre = ServicioComposicionFigurita._cargar_fuente(40, negrita=False)
@@ -385,7 +440,7 @@ class ServicioComposicionFigurita:
         fuente_pais = ServicioComposicionFigurita._cargar_fuente(26, negrita=False)
 
         nombre_x = barra_nombre[0] + 34
-        nombre_y = barra_nombre[1] + 12
+        nombre_y = barra_nombre[1] + 10
         nombre_jugador = (datos_sticker.nombre or "Jugador").upper()
         apellido_jugador = (datos_sticker.apellido or "Premium").upper()
         ServicioComposicionFigurita._dibujar_texto_con_sombra(
@@ -416,13 +471,13 @@ class ServicioComposicionFigurita:
         )
         ServicioComposicionFigurita._dibujar_texto_con_sombra(
             dibujo,
-            (nombre_x, barra_nombre[1] + 64),
+            (nombre_x, barra_nombre[1] + 60),
             linea_secundaria,
             fuente=fuente_info,
         )
         ServicioComposicionFigurita._dibujar_texto_con_sombra(
             dibujo,
-            (barra_equipo[0] + 26, barra_equipo[1] + 8),
+            (barra_equipo[0] + 24, barra_equipo[1] + 6),
             (datos_sticker.equipo or "Equipo").upper(),
             fuente=fuente_equipo,
         )
@@ -431,7 +486,7 @@ class ServicioComposicionFigurita:
         pais_x = barra_equipo[2] - (caja_pais[2] - caja_pais[0]) - 24
         ServicioComposicionFigurita._dibujar_texto_con_sombra(
             dibujo,
-            (pais_x, barra_equipo[1] + 10),
+            (pais_x, barra_equipo[1] + 8),
             pais,
             fuente=fuente_pais,
         )

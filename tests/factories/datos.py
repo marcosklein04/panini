@@ -132,9 +132,10 @@ def crear_plantilla_demo(**kwargs) -> PlantillaFigurita:
             "titulo_superior": "FICHA COMPLETADA",
             "subtitulo": "FIGURITA FAN EDITION",
             "badge": "TOP",
-            "escala_persona": 0.72,
+            "escala_persona": 0.9,
             "desplazamiento_x": 0,
-            "desplazamiento_y": 30,
+            "desplazamiento_y": 10,
+            "proporcion_busto": 0.9,
         },
     }
     datos.update(kwargs)

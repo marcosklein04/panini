@@ -23,7 +23,8 @@ def cargar_archivo_entorno() -> None:
         clave, valor = linea.split("=", 1)
         clave = clave.strip()
         valor = valor.strip().strip('"').strip("'")
-        os.environ[clave] = valor
+        if clave not in os.environ:
+            os.environ[clave] = valor
 
 
 def leer_entorno(nombre: str, default: str | None = None, requerido: bool = False) -> str:
@@ -66,7 +67,7 @@ cargar_archivo_entorno()
 SECRET_KEY = leer_entorno("SECRET_KEY", requerido=True)
 DEBUG = leer_bool("DEBUG", default=False)
 ALLOWED_HOSTS = leer_lista("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
-if DEBUG and ALLOWED_HOSTS == ["localhost", "127.0.0.1"]:
+if DEBUG:
     ALLOWED_HOSTS = ["*"]
 CELERY_TASK_ALWAYS_EAGER = leer_bool("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_TASK_EAGER_PROPAGATES = leer_bool(

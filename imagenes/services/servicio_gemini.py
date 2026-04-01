@@ -28,7 +28,7 @@ class ServicioGemini:
         self.timeout_segundos = int(getattr(settings, "GEMINI_TIMEOUT_SEGUNDOS", 20))
         clave_invalida = settings.GEMINI_API_KEY.strip() in {"", "tu_api_key_de_gemini"}
 
-        if self.modo_simulado and clave_invalida:
+        if self.modo_simulado:
             logger.warning("ServicioGemini en modo simulado local.")
             self.cliente = None
             return
@@ -42,7 +42,7 @@ class ServicioGemini:
         self.cliente = genai.Client(api_key=settings.GEMINI_API_KEY)
 
     def analizar_persona(self, imagen_bytes: bytes, mime_type: str) -> dict:
-        if self.modo_simulado and self.cliente is None:
+        if self.modo_simulado:
             return self._analizar_persona_simulada(imagen_bytes)
 
         prompt = (
@@ -167,28 +167,44 @@ class ServicioGemini:
     def _analizar_persona_simulada(self, imagen_bytes: bytes, motivo_error: str | None = None) -> dict:
         imagen = Image.open(io.BytesIO(imagen_bytes)).convert("RGB")
         ancho, alto = imagen.size
-        imagen_np = cv2.cvtColor(np.array(imagen), cv2.COLOR_RGB2BGR)
+        max_dimension_analisis = 960
+        if max(ancho, alto) > max_dimension_analisis:
+            escala = max_dimension_analisis / max(ancho, alto)
+            ancho_analisis = max(1, int(ancho * escala))
+            alto_analisis = max(1, int(alto * escala))
+            imagen_analisis = imagen.resize(
+                (ancho_analisis, alto_analisis),
+                Image.Resampling.LANCZOS,
+            )
+        else:
+            imagen_analisis = imagen
+            ancho_analisis, alto_analisis = ancho, alto
+
+        imagen_np = cv2.cvtColor(np.array(imagen_analisis), cv2.COLOR_RGB2BGR)
         mascara = self._generar_mascara_local(imagen_np)
 
         indices = np.argwhere(mascara > 10)
         if indices.size == 0:
-            x0 = int(ancho * 0.2)
-            x1 = int(ancho * 0.8)
-            y0 = int(alto * 0.08)
-            y1 = int(alto * 0.92)
-            mascara = np.zeros((alto, ancho), dtype=np.uint8)
+            x0 = int(ancho_analisis * 0.2)
+            x1 = int(ancho_analisis * 0.8)
+            y0 = int(alto_analisis * 0.08)
+            y1 = int(alto_analisis * 0.92)
+            mascara = np.zeros((alto_analisis, ancho_analisis), dtype=np.uint8)
             mascara[y0:y1, x0:x1] = 255
         else:
             y0, x0 = indices.min(axis=0)
             y1, x1 = indices.max(axis=0)
 
         caja_normalizada = [
-            int((y0 / max(alto, 1)) * 1000),
-            int((x0 / max(ancho, 1)) * 1000),
-            int((y1 / max(alto, 1)) * 1000),
-            int((x1 / max(ancho, 1)) * 1000),
+            int((y0 / max(alto_analisis, 1)) * 1000),
+            int((x0 / max(ancho_analisis, 1)) * 1000),
+            int((y1 / max(alto_analisis, 1)) * 1000),
+            int((x1 / max(ancho_analisis, 1)) * 1000),
         ]
-        mascara_recorte = mascara[y0:y1 or alto, x0:x1 or ancho]
+        mascara_recorte = mascara[
+            y0 : (y1 if y1 else alto_analisis),
+            x0 : (x1 if x1 else ancho_analisis),
+        ]
         if mascara_recorte.size == 0:
             mascara_recorte = mascara
 
