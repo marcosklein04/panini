@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from core.enums import EstadoProceso
 from core.excepciones import ErrorDeDominio
@@ -33,7 +33,7 @@ class ServicioComposicionFigurita:
         "titulo_superior": "EDICION PERSONALIZADA",
         "subtitulo": "STICKER FAN CARD",
         "badge": "TITULAR",
-        "escala_persona": 0.9,
+        "escala_persona": 0.88,
         "desplazamiento_x": 0,
         "desplazamiento_y": 10,
         "proporcion_busto": 0.9,
@@ -168,7 +168,7 @@ class ServicioComposicionFigurita:
         return persona
 
     @staticmethod
-    def _recortar_a_busto(persona: Image.Image, config: dict) -> Image.Image:
+    def _recortar_a_persona_visible(persona: Image.Image, config: dict) -> Image.Image:
         umbral = int(config.get("umbral_alpha_persona", 20))
         persona = ServicioComposicionFigurita._limpiar_alpha_persona(persona, umbral)
         alpha = persona.getchannel("A")
@@ -178,30 +178,8 @@ class ServicioComposicionFigurita:
 
         persona = persona.crop(caja)
         alpha = persona.getchannel("A")
-        caja = alpha.point(lambda valor: 255 if valor >= umbral else 0).getbbox()
-        if not caja:
-            return persona
-
-        x0, y0, x1, y1 = caja
-        ancho = max(x1 - x0, 1)
-        alto = max(y1 - y0, 1)
-        limite_busto = y0 + int(alto * float(config.get("proporcion_busto", 0.68)))
-        margen_x = int(ancho * float(config.get("margen_horizontal_busto", 0.14)))
-        margen_superior = int(alto * float(config.get("margen_superior_busto", 0.05)))
-        margen_inferior = int(alto * float(config.get("margen_inferior_busto", 0.05)))
-
-        caja_busto = (
-            max(x0 - margen_x, 0),
-            max(y0 - margen_superior, 0),
-            min(x1 + margen_x, persona.width),
-            min(limite_busto + margen_inferior, persona.height),
-        )
-        persona = persona.crop(caja_busto)
-        alpha = persona.getchannel("A")
         caja_final = alpha.point(lambda valor: 255 if valor >= umbral else 0).getbbox()
-        if caja_final:
-            persona = persona.crop(caja_final)
-        return persona
+        return persona.crop(caja_final) if caja_final else persona
 
     @staticmethod
     def _crear_mascara_silueta_plantilla(fondo: Image.Image) -> Image.Image:
@@ -424,19 +402,15 @@ class ServicioComposicionFigurita:
         layout = ServicioComposicionFigurita._extraer_layout_plantilla_visual(fondo)
         barra_nombre = layout["barra_nombre"]
         barra_equipo = layout["barra_equipo"]
-        mascara_silueta = ServicioComposicionFigurita._crear_mascara_silueta_plantilla(
-            fondo
-        )
-        caja_silueta = mascara_silueta.getbbox() or layout["zona_persona"]
-        zona_persona = caja_silueta
+        zona_persona = layout["zona_persona"]
 
         sombra = persona.copy()
         alfa_sombra = sombra.getchannel("A").filter(ImageFilter.GaussianBlur(radius=20))
         sombra.putalpha(alfa_sombra)
 
-        escala = float(config.get("escala_persona", 0.9))
-        max_alto_persona = int((zona_persona[3] - zona_persona[1]) * 1.08)
-        max_ancho_persona = int((zona_persona[2] - zona_persona[0]) * 1.12)
+        escala = float(config.get("escala_persona", 0.88))
+        max_alto_persona = int((zona_persona[3] - zona_persona[1]) * 0.98)
+        max_ancho_persona = int((zona_persona[2] - zona_persona[0]) * 0.96)
         proporcion = min(
             max_alto_persona / max(persona.height, 1),
             max_ancho_persona / max(persona.width, 1),
@@ -452,24 +426,8 @@ class ServicioComposicionFigurita:
         posicion_persona = (centro_x - persona.width // 2, base_y - persona.height)
         posicion_sombra = (posicion_persona[0] + 14, posicion_persona[1] + 20)
 
-        capa_sombra = Image.new("RGBA", fondo.size, (0, 0, 0, 0))
-        capa_persona = Image.new("RGBA", fondo.size, (0, 0, 0, 0))
-        capa_sombra.alpha_composite(sombra, posicion_sombra)
-        capa_persona.alpha_composite(persona, posicion_persona)
-
-        alpha_sombra = ImageChops.multiply(
-            capa_sombra.getchannel("A"),
-            mascara_silueta,
-        )
-        alpha_persona = ImageChops.multiply(
-            capa_persona.getchannel("A"),
-            mascara_silueta,
-        )
-        capa_sombra.putalpha(alpha_sombra)
-        capa_persona.putalpha(alpha_persona)
-
-        fondo.alpha_composite(capa_sombra)
-        fondo.alpha_composite(capa_persona)
+        fondo.alpha_composite(sombra, posicion_sombra)
+        fondo.alpha_composite(persona, posicion_persona)
 
         dibujo = ImageDraw.Draw(fondo)
         fuente_nombre = ServicioComposicionFigurita._cargar_fuente(40, negrita=False)
@@ -619,7 +577,7 @@ class ServicioComposicionFigurita:
 
         with figurita.resultado_recorte.png_transparente.open("rb") as descriptor:
             persona = Image.open(descriptor).convert("RGBA")
-        persona = ServicioComposicionFigurita._recortar_a_busto(persona, config)
+        persona = ServicioComposicionFigurita._recortar_a_persona_visible(persona, config)
 
         nombre = ServicioComposicionFigurita._nombre_mostrado(datos_sticker).upper()
         if usa_plantilla_visual:

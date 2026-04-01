@@ -46,12 +46,16 @@ class ServicioGemini:
             return self._analizar_persona_simulada(imagen_bytes)
 
         prompt = (
-            "Analiza esta imagen y detecta unicamente la persona principal visible. "
-            "Responde solo JSON con la forma "
+            "Analyze this image and detect only the main visible person. "
+            "Return JSON only in the form "
             '{"segmentos":[{"label":"persona","box_2d":[y0,x0,y1,x1],"mask":"<png_base64>"}]}. '
-            "Usa coordenadas normalizadas entre 0 y 1000. "
-            "La mascara debe incluir cabeza, cuello, hombros y torso superior, y excluir por completo fondo y objetos. "
-            "Incluye solo segmentos de persona y omite cualquier texto adicional."
+            "Use normalized coordinates from 0 to 1000. "
+            "The mask must include the full visible person exactly as they appear in the photo, "
+            "including hair, face, neck, clothes, shoulders, torso, arms, and any visible body parts. "
+            "The mask must remove the background completely, including walls, furniture, lights, shadows from the room, and any other objects. "
+            "Do not crop the person to a bust-only silhouette. "
+            "Do not include any non-person pixels inside the mask. "
+            "Return only person segments and no extra text."
         )
         config = types.GenerateContentConfig(
             responseMimeType="application/json",

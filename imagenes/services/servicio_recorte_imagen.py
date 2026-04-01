@@ -375,17 +375,9 @@ class ServicioRecorteImagen:
         return resultado
 
     @staticmethod
-    def _acotar_mascara_a_busto(imagen: Image.Image, mascara: np.ndarray) -> np.ndarray:
+    def _limpiar_mascara_persona(imagen: Image.Image, mascara: np.ndarray) -> np.ndarray:
         imagen_bgr = cv2.cvtColor(np.array(imagen.convert("RGB")), cv2.COLOR_RGB2BGR)
         rostro = ServicioRecorteImagen._detectar_rostro_principal(imagen_bgr)
-        if rostro is None:
-            return mascara
-
-        x, y, w, h = rostro
-        silueta_busto = ServicioRecorteImagen._construir_silueta_busto_desde_rostro(
-            mascara.shape,
-            rostro,
-        )
         color_fondo, umbral_bajo, umbral_alto = (
             ServicioRecorteImagen._muestrear_fondo_desde_bordes(imagen_bgr)
         )
@@ -398,109 +390,34 @@ class ServicioRecorteImagen:
         )
         color_fondo_probable = (color_fondo_probable * 255).astype(np.uint8)
 
-        alto, ancho = mascara.shape
-        mascara_gc = np.full((alto, ancho), cv2.GC_BGD, dtype=np.uint8)
-        margen_borde = max(min(ancho, alto) // 32, 14)
-        mascara_gc[:margen_borde, :] = cv2.GC_BGD
-        mascara_gc[:, :margen_borde] = cv2.GC_BGD
-        mascara_gc[:, max(ancho - margen_borde, 0) :] = cv2.GC_BGD
-        mascara_gc[max(alto - margen_borde, 0) :, :] = cv2.GC_BGD
+        mascara_base = np.where(mascara >= 40, 255, 0).astype(np.uint8)
+        limpieza_color = np.where(color_fondo_probable >= 78, 255, 0).astype(np.uint8)
+        limpieza_color = cv2.GaussianBlur(limpieza_color, (0, 0), sigmaX=1.0)
 
-        mascara_gc[silueta_busto > 20] = cv2.GC_PR_FGD
-        mascara_gc[mascara >= 110] = cv2.GC_PR_FGD
-        mascara_gc[color_fondo_probable >= 188] = cv2.GC_PR_FGD
-        mascara_gc[(color_fondo_probable <= 34) & (silueta_busto <= 28)] = cv2.GC_BGD
+        refinada = cv2.bitwise_and(mascara_base, limpieza_color)
+        refinada = cv2.max(refinada, cv2.threshold(mascara.astype(np.uint8), 150, 255, cv2.THRESH_BINARY)[1])
 
-        rostro_y0 = max(int(y - (h * 0.28)), 0)
-        rostro_y1 = min(int(y + h + (h * 0.18)), alto)
-        rostro_x0 = max(int(x - (w * 0.18)), 0)
-        rostro_x1 = min(int(x + w + (w * 0.18)), ancho)
-        mascara_gc[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = cv2.GC_FGD
+        if rostro is not None:
+            x, y, w, h = rostro
+            rostro_y0 = max(int(y - (h * 0.28)), 0)
+            rostro_y1 = min(int(y + h + (h * 0.18)), mascara.shape[0])
+            rostro_x0 = max(int(x - (w * 0.18)), 0)
+            rostro_x1 = min(int(x + w + (w * 0.18)), mascara.shape[1])
+            refinada[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = 255
 
-        torso_y0 = min(int(y + (h * 0.95)), alto)
-        torso_y1 = min(int(y + (h * 2.85)), alto)
-        torso_x0 = max(int((x + (w / 2)) - (w * 0.92)), 0)
-        torso_x1 = min(int((x + (w / 2)) + (w * 0.92)), ancho)
-        if torso_y1 > torso_y0 and torso_x1 > torso_x0:
-            region_torso = mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1]
-            region_torso[:] = np.maximum(region_torso, cv2.GC_PR_FGD)
-
-        rect_x0 = max(int((x + (w / 2)) - (w * 1.08)), 0)
-        rect_y0 = max(int(y - (h * 0.36)), 0)
-        rect_x1 = min(int((x + (w / 2)) + (w * 1.08)), ancho)
-        rect_y1 = min(int(y + (h * 3.0)), alto)
-        rectangulo = (
-            rect_x0,
-            rect_y0,
-            max(rect_x1 - rect_x0, 1),
-            max(rect_y1 - rect_y0, 1),
-        )
-
-        fondo_modelo = np.zeros((1, 65), np.float64)
-        primer_plano_modelo = np.zeros((1, 65), np.float64)
-        try:
-            mascara_rect = np.zeros((alto, ancho), np.uint8)
-            cv2.grabCut(
-                imagen_bgr,
-                mascara_rect,
-                rectangulo,
-                fondo_modelo,
-                primer_plano_modelo,
-                4,
-                cv2.GC_INIT_WITH_RECT,
-            )
-
-            preliminar = np.where(
-                (mascara_rect == cv2.GC_FGD) | (mascara_rect == cv2.GC_PR_FGD),
-                255,
-                0,
-            ).astype(np.uint8)
-            mascara_gc = np.full((alto, ancho), cv2.GC_BGD, dtype=np.uint8)
-            mascara_gc[silueta_busto > 20] = cv2.GC_PR_FGD
-            mascara_gc[preliminar > 0] = cv2.GC_PR_FGD
-            mascara_gc[mascara >= 110] = cv2.GC_PR_FGD
-            mascara_gc[color_fondo_probable >= 188] = cv2.GC_PR_FGD
-            mascara_gc[(color_fondo_probable <= 34) & (silueta_busto <= 28)] = cv2.GC_BGD
-            mascara_gc[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = cv2.GC_FGD
+            torso_y0 = min(int(y + (h * 0.8)), mascara.shape[0])
+            torso_y1 = min(int(y + (h * 3.8)), mascara.shape[0])
+            torso_x0 = max(int((x + (w / 2)) - (w * 1.65)), 0)
+            torso_x1 = min(int((x + (w / 2)) + (w * 1.65)), mascara.shape[1])
             if torso_y1 > torso_y0 and torso_x1 > torso_x0:
-                mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1] = np.maximum(
-                    mascara_gc[torso_y0:torso_y1, torso_x0:torso_x1],
-                    cv2.GC_PR_FGD,
+                refinada[torso_y0:torso_y1, torso_x0:torso_x1] = np.maximum(
+                    refinada[torso_y0:torso_y1, torso_x0:torso_x1],
+                    mascara_base[torso_y0:torso_y1, torso_x0:torso_x1],
                 )
+            refinada = ServicioRecorteImagen._seleccionar_componente_rostro(refinada, rostro)
+        else:
+            refinada = ServicioRecorteImagen._seleccionar_mayor_componente(refinada)
 
-            cv2.grabCut(
-                imagen_bgr,
-                mascara_gc,
-                None,
-                fondo_modelo,
-                primer_plano_modelo,
-                2,
-                cv2.GC_INIT_WITH_MASK,
-            )
-            refinada = np.where(
-                (mascara_gc == cv2.GC_FGD) | (mascara_gc == cv2.GC_PR_FGD),
-                255,
-                0,
-            ).astype(np.uint8)
-        except cv2.error:
-            refinada = cv2.min(mascara.astype(np.uint8), color_fondo_probable)
-
-        limpieza_color = np.where(color_fondo_probable >= 52, 255, 0).astype(np.uint8)
-        limpieza_color[rostro_y0:rostro_y1, rostro_x0:rostro_x1] = 255
-        if torso_y1 > torso_y0 and torso_x1 > torso_x0:
-            limpieza_color[torso_y0:torso_y1, torso_x0:torso_x1] = 255
-        limpieza_color = cv2.GaussianBlur(limpieza_color, (0, 0), sigmaX=1.1)
-
-        refinada = cv2.bitwise_and(refinada, silueta_busto)
-        refinada = cv2.bitwise_and(refinada, limpieza_color)
-        refinada = cv2.max(
-            refinada,
-            cv2.bitwise_and(
-                mascara.astype(np.uint8),
-                cv2.bitwise_and(limpieza_color, silueta_busto),
-            ),
-        )
-        refinada = ServicioRecorteImagen._seleccionar_componente_rostro(refinada, rostro)
         refinada = cv2.morphologyEx(
             refinada,
             cv2.MORPH_CLOSE,
@@ -513,7 +430,7 @@ class ServicioRecorteImagen:
             np.ones((3, 3), np.uint8),
             iterations=1,
         )
-        refinada = cv2.GaussianBlur(refinada, (0, 0), sigmaX=1.2)
+        refinada = cv2.GaussianBlur(refinada, (0, 0), sigmaX=1.1)
         return refinada
 
     @staticmethod
@@ -649,7 +566,7 @@ class ServicioRecorteImagen:
                 segmento, imagen.width, imagen.height
             )
             mascara_refinada = ServicioRecorteImagen._refinar_mascara(mascara)
-            mascara_refinada = ServicioRecorteImagen._acotar_mascara_a_busto(
+            mascara_refinada = ServicioRecorteImagen._limpiar_mascara_persona(
                 imagen,
                 mascara_refinada,
             )
